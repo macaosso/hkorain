@@ -8,7 +8,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
-        /* Custom dark styling for Leaflet elements */
         .leaflet-container { background: #222a35 !important; }
         .custom-radar-label {
             background: transparent;
@@ -17,6 +16,16 @@
             color: rgba(255, 255, 255, 0.5);
             font-size: 10px;
             font-weight: bold;
+        }
+        /* Style for rainfall text on map */
+        .map-rain-label {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            font-size: 9px;
+            font-weight: 800;
+            text-align: center;
+            text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
         }
     </style>
 </head>
@@ -52,6 +61,13 @@
                 <div class="text-xs text-gray-500 mt-2" id="lastUpdatedStr"></div>
             </div>
 
+            <div id="macauAlertBox" class="p-3 rounded border border-gray-700 bg-[#222a35]">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Macau 8km Proximity Alert</h3>
+                <div id="macauAlertContent" class="text-xs">
+                    <p class="text-gray-500 italic">Scanning vicinity...</p>
+                </div>
+            </div>
+
             <div class="bg-[#222a35] p-3 rounded border border-gray-700">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Rainfall Scale (mm/h)</h3>
                 <div class="grid grid-cols-1 gap-1.5 text-xs font-mono">
@@ -67,7 +83,7 @@
             </div>
 
             <div class="bg-[#222a35] p-3 rounded border border-gray-700 flex-1">
-                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Detected Heavy Cores</h3>
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Regional Heavy Cores</h3>
                 <div id="peakContainer" class="text-xs text-gray-400 max-h-[200px] overflow-y-auto space-y-1">
                     No heavy rain cells active.
                 </div>
@@ -79,7 +95,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Global variables
         let map;
         let csvData = [];
         let gridLayerGroup = L.layerGroup();
@@ -88,11 +103,9 @@
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
 
-        // HKO API Endpoint through an open CORS Proxy to ensure it loads flawlessly on GitHub Pages
-        // Replace your old csvUrl with this:
+        // Use the relative path deployment strategy 
         const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
 
-        // HKO Color Palette mapping
         function getRainColor(val) {
             if (val < 0.1) return 'transparent';
             if (val < 1)   return "#15438e";
@@ -105,18 +118,26 @@
             return "#6C074E";
         }
 
-        // Initialize GIS Leaflet Map
+        // Haversine formula to compute distance in kilometers between coordinates
+        function getDistanceKM(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
         function initMap() {
             map = L.map('map', {
-                center: [22.1595, 113.80],
-                zoom: 9.5,
+                center: [22.1595, 113.65],
+                zoom: 10,
                 zoomControl: true
             });
 
-            // CartoDB Dark Matter base map tiles
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                 attribution: '&copy; OpenStreetMap &copy; CartoDB',
-                subdomains: 'abcd',
                 maxZoom: 19
             }).addTo(map);
 
@@ -126,13 +147,23 @@
             drawRadarRings();
         }
 
-        // Build radar range grids relative to Macau center point
         function drawRadarRings() {
             radarRingsGroup.clearLayers();
-            const distances = [10000, 25000, 50000, 100000]; // in meters
+            
+            // Add custom 8 km explicit verification ring (highlighted in light cyan)
+            L.circle([MACAU_LAT, MACAU_LON], {
+                radius: 8000,
+                color: '#2fdbeb',
+                weight: 1.2,
+                dashArray: '2, 5',
+                fill: true,
+                fillColor: '#2fdbeb',
+                fillOpacity: 0.03
+            }).addTo(radarRingsGroup);
+
+            const distances = [10000, 25000, 50000, 100000]; 
             const labels = ['10 km', '25 km', '50 km', '100 km'];
 
-            // Center Marker
             L.circleMarker([MACAU_LAT, MACAU_LON], {
                 radius: 5, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1
             }).addTo(radarRingsGroup);
@@ -144,11 +175,9 @@
                     weight: 0.8,
                     dashArray: '4, 4',
                     fill: false,
-                    opacity: 0.5
+                    opacity: 0.4
                 }).addTo(radarRingsGroup);
 
-                // Add label text south of circle
-                // Simple approx conversion offset for label placement
                 const offsetLat = dist / 111320; 
                 L.marker([MACAU_LAT - offsetLat, MACAU_LON], {
                     icon: L.divIcon({
@@ -160,7 +189,6 @@
             });
         }
 
-        // Fetch and parse real time data
         function loadData() {
             document.getElementById('statusBadge').innerText = "Fetching...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
@@ -192,14 +220,11 @@
                 return { end_time, lat, lon, rain };
             }).filter(item => !isNaN(item.lat) && !isNaN(item.lon));
 
-            // Populate Dropdown Options with unique target timestamps
-            const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].sort();
+            const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].filter(t => t).sort();
             const timeSelect = document.getElementById('timeSelect');
             timeSelect.innerHTML = '';
 
             uniqueTimes.forEach(tStr => {
-                if(!tStr) return;
-                // Parse format e.g., 202607070506 -> 05:06
                 let formattedTime = tStr.substring(0,4) + "-" + tStr.substring(4,6) + "-" + tStr.substring(6,8) + " " + tStr.substring(8,10) + ":" + tStr.substring(10,12);
                 let opt = document.createElement('option');
                 opt.value = tStr;
@@ -211,45 +236,94 @@
             document.getElementById('statusBadge').className = "text-green-400 font-medium";
             document.getElementById('lastUpdatedStr').innerText = "Last checked: " + new Date().toLocaleTimeString();
 
-            // Render default/first timestamp
             if(uniqueTimes.length > 0) {
                 renderFrame(uniqueTimes[0]);
             }
         }
 
-        // Render chosen nowcast step onto map grid
         function renderFrame(targetTime) {
             gridLayerGroup.clearLayers();
             const filtered = csvData.filter(d => d.end_time === targetTime && d.rain > 0);
+            
             const peakContainer = document.getElementById('peakContainer');
+            const alertBox = document.getElementById('macauAlertBox');
+            const alertContent = document.getElementById('macauAlertContent');
 
             let heavyCores = [];
+            let macauMaxRain = 0;
 
             filtered.forEach(pt => {
                 const color = getRainColor(pt.rain);
                 if(color === 'transparent') return;
 
-                // Create individual grid rectangle block for resolution visibility (approx 0.02 spacing grid elements)
+                // 1. Draw Grid Rectangle Block
                 const gridCell = L.rectangle([
                     [pt.lat - 0.01, pt.lon - 0.01],
                     [pt.lat + 0.01, pt.lon + 0.01]
                 ], {
                     color: color,
-                    weight: 0,
+                    weight: 0.3,
+                    opacity: 0.2,
                     fillColor: color,
-                    fillOpacity: 0.55
+                    fillOpacity: 0.5
                 });
 
                 gridCell.bindPopup(`<b>Rainfall Rate:</b> ${pt.rain.toFixed(2)} mm/h<br><b>Coords:</b> ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)}`);
                 gridCell.addTo(gridLayerGroup);
 
-                // Peak tracking threshold (>= 10mm/h from code logic configuration)
+                // 2. Render Value Directly text markers over grid map layer
+                const roundedRain = Math.round(pt.rain);
+                if (roundedRain >= 1) {
+                    L.marker([pt.lat, pt.lon], {
+                        icon: L.divIcon({
+                            className: 'map-rain-label',
+                            html: `<span style="color: ${color};">${roundedRain}</span>`,
+                            iconSize: [20, 20],
+                            iconAnchor: [10, 10]
+                        }),
+                        interactive: false // Click event flows into the rectangle block below it
+                    }).addTo(gridLayerGroup);
+                }
+
+                // 3. Proximity calculations for Macau Core Core Verification
+                const distToMacau = getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON);
+                if (distToMacau <= 8.0) {
+                    if (pt.rain > macauMaxRain) {
+                        macauMaxRain = pt.rain;
+                    }
+                }
+
                 if (pt.rain >= 10.0) {
                     heavyCores.push(pt);
                 }
             });
 
-            // Handle Heavy core metrics printing inside Sidebar
+            // 4. Update Macau 8km Proximity Alert Box Window Data
+            if (macauMaxRain >= 20.0) {
+                alertBox.className = "p-3 rounded border border-red-500 bg-red-950/40 animate-pulse";
+                let formattedTime = targetTime.substring(8,10) + ":" + targetTime.substring(10,12);
+                alertContent.innerHTML = `
+                    <div class="text-red-400 font-bold flex items-center gap-1.5 mb-1 text-sm">
+                        ⚠️ CRITICAL IMPACT WARNING
+                    </div>
+                    <p class="text-gray-200">Heavy core detected within <b>8 km</b> of Macau.</p>
+                    <div class="mt-2 text-sm flex justify-between items-center">
+                        <span class="text-gray-400">Peak Intensity:</span>
+                        <span class="font-black text-red-400 font-mono text-base">${macauMaxRain.toFixed(1)} mm/h</span>
+                    </div>
+                    <div class="text-[10px] text-gray-400 mt-1 text-right">Forecast Time: ${formattedTime}</div>
+                `;
+            } else {
+                alertBox.className = "p-3 rounded border border-gray-700 bg-[#222a35]";
+                alertContent.innerHTML = `
+                    <div class="text-green-400 font-semibold mb-1 flex items-center gap-1">
+                        ✓ Environment Clear
+                    </div>
+                    <p class="text-gray-400 text-[11px]">No rainfall exceeding 20 mm/h detected inside the 8 km radius threshold. (Current Max: ${macauMaxRain.toFixed(1)} mm/h)</p>
+                `;
+            }
+
+            // Update regional top list components
             heavyCores.sort((a,b) => b.rain - a.rain);
             if (heavyCores.length > 0) {
                 peakContainer.innerHTML = heavyCores.slice(0, 8).map(pt => 
@@ -263,14 +337,12 @@
             }
         }
 
-        // Event hooks
         document.getElementById('timeSelect').addEventListener('change', function(e) {
             renderFrame(e.target.value);
         });
 
         document.getElementById('refreshBtn').addEventListener('click', loadData);
 
-        // Run dashboard on window startup
         window.onload = function() {
             initMap();
             loadData();
