@@ -100,15 +100,12 @@
     <script>
         let map;
         let csvData = [];
-        let smoothOverlay = null; 
-        let textLayerGroup = L.layerGroup();
+        let gridLayerGroup = L.layerGroup(); // Layer for blocky square cells and labels
         let radarRingsGroup = L.layerGroup();
-        let lastNotifiedTime = ""; // Debounce key tracker to prevent duplicate notification spam
+        let lastNotifiedTime = ""; 
 
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
-        
-        // Cache-busting URL configuration for active continuous refreshing loops
         const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
 
         function getRainColor(val) {
@@ -133,7 +130,6 @@
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
-        // Initialize Native Desktop Notifications Interface
         function initNotifications() {
             if (!("Notification" in window)) return;
             
@@ -151,12 +147,10 @@
         function triggerSystemPopNotification(intensity, timeString) {
             if (!("Notification" in window) || Notification.permission !== "granted") return;
             
-            // Format time string for human scannability
             let hh = timeString.substring(8, 10);
             let mm = timeString.substring(10, 12);
             let formattedTime = `${hh}:${mm}`;
 
-            // Prevent spamming matching timeline sequences
             if (lastNotifiedTime === timeString) return;
             lastNotifiedTime = timeString;
 
@@ -179,7 +173,7 @@
                 maxZoom: 19
             }).addTo(map);
 
-            textLayerGroup.addTo(map);
+            gridLayerGroup.addTo(map);
             radarRingsGroup.addTo(map);
             drawRadarRings();
         }
@@ -228,7 +222,6 @@
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
 
-            // Add a cache-busting timestamp query parameter to bypass browser data caching loops
             const liveUrl = `${csvUrl}?t=${new Date().getTime()}`;
 
             Papa.parse(liveUrl, {
@@ -262,7 +255,6 @@
             const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].filter(t => t).sort();
             const timeSelect = document.getElementById('timeSelect');
             
-            // Store previous selected value to hold selection position through updates
             const currentSelection = timeSelect.value;
             timeSelect.innerHTML = '';
 
@@ -278,10 +270,8 @@
             document.getElementById('statusBadge').className = "text-green-400 font-medium";
             document.getElementById('lastUpdatedStr').innerText = "Last fetched: " + new Date().toLocaleTimeString();
 
-            // Run system scans on incoming timeline matrices to look for threat updates
             checkAllTimelinesForThreats(uniqueTimes);
 
-            // Restore selection alignment position safely
             if (uniqueTimes.includes(currentSelection)) {
                 timeSelect.value = currentSelection;
                 renderFrame(currentSelection);
@@ -290,15 +280,14 @@
             }
         }
 
-        // Loops through incoming parsed updates to scan for immediate or future threats
         function checkAllTimelinesForThreats(timelines) {
             for (let t of timelines) {
                 const framePoints = csvData.filter(d => d.end_time === t);
                 for (let pt of framePoints) {
-                    if (pt.rain >= 10.0) {
+                    if (pt.rain >= 1.0) {
                         if (getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON) <= 8.0) {
                             triggerSystemPopNotification(pt.rain, t);
-                            return; // Break early once an active warning triggers
+                            return; 
                         }
                     }
                 }
@@ -306,11 +295,8 @@
         }
 
         function renderFrame(targetTime) {
-            textLayerGroup.clearLayers();
-            if(smoothOverlay && map.hasLayer(smoothOverlay)) {
-                map.removeLayer(smoothOverlay);
-            }
-
+            gridLayerGroup.clearLayers();
+            
             const filtered = csvData.filter(d => d.end_time === targetTime && d.rain > 0);
             
             const peakContainer = document.getElementById('peakContainer');
@@ -320,36 +306,26 @@
             let heavyCores = [];
             let macauMaxRain = 0;
 
-            if(filtered.length === 0) return;
-            let lats = filtered.map(p => p.lat), lons = filtered.map(p => p.lon);
-            let minLat = Math.min(...lats), maxLat = Math.max(...lats);
-            let minLon = Math.min(...lons), maxLon = Math.max(...lons);
-
-            const bounds = L.latLngBounds([[minLat - 0.03, minLon - 0.03], [maxLat + 0.03, maxLon + 0.03]]);
-
-            const canvas = document.createElement('canvas');
-            canvas.width = 600;
-            canvas.height = 600;
-            const ctx = canvas.getContext('2d');
-
             filtered.forEach(pt => {
-                const x = ((pt.lon - bounds.getWest()) / (bounds.getEast() - bounds.getWest())) * canvas.width;
-                const y = (1 - (pt.lat - bounds.getSouth()) / (bounds.getNorth() - bounds.getSouth())) * canvas.height;
                 const color = getRainColor(pt.rain);
+                if(color === 'transparent') return;
 
-                if (color !== 'transparent') {
-                    let rad = pt.rain >= 50 ? 24 : 16;
-                    let grad = ctx.createRadialGradient(x, y, 1, x, y, rad);
-                    grad.addColorStop(0, color);
-                    grad.addColorStop(1, 'transparent');
-                    
-                    ctx.fillStyle = grad;
-                    ctx.globalAlpha = 0.55;
-                    ctx.beginPath();
-                    ctx.arc(x, y, rad, 0, Math.PI * 2);
-                    ctx.fill();
-                }
+                // 1. Draw Grid Rectangle Block Box (Restored)
+                const gridCell = L.rectangle([
+                    [pt.lat - 0.01, pt.lon - 0.01],
+                    [pt.lat + 0.01, pt.lon + 0.01]
+                ], {
+                    color: color,
+                    weight: 0.3,
+                    opacity: 0.4,
+                    fillColor: color,
+                    fillOpacity: 0.55
+                });
 
+                gridCell.bindPopup(`<b>Rainfall Rate:</b> ${pt.rain.toFixed(2)} mm/h<br><b>Coords:</b> ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)}`);
+                gridCell.addTo(gridLayerGroup);
+
+                // 2. Plot numerical text markers if value >= 10 mm/h
                 const roundedRain = Math.round(pt.rain);
                 if (roundedRain >= 10) {
                     L.marker([pt.lat, pt.lon], {
@@ -360,9 +336,10 @@
                             iconAnchor: [10, 10]
                         }),
                         interactive: false
-                    }).addTo(textLayerGroup);
+                    }).addTo(gridLayerGroup);
                 }
 
+                // 3. Proximity check rules
                 const distToMacau = getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON);
                 if (distToMacau <= 8.0 && pt.rain > macauMaxRain) {
                     macauMaxRain = pt.rain;
@@ -372,11 +349,7 @@
                 }
             });
 
-            smoothOverlay = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 0.85 });
-            smoothOverlay.addTo(map);
-            textLayerGroup.bringToFront(); 
-
-            // Update Left UI Sidebar Display Components
+            // 4. Update Sidebar Notification Boxes
             if (macauMaxRain >= 20.0) {
                 alertBox.className = "p-3 rounded border border-red-500 bg-red-950/40 animate-pulse";
                 let formattedTime = targetTime.substring(8,10) + ":" + targetTime.substring(10,12);
@@ -420,8 +393,8 @@
             initNotifications();
             loadData();
             
-            // AUTOMATION RULE 1: Automated Background Data Refresh Handler Loop (Runs every 5 minutes)
-            setInterval(loadData, 1 * 60 * 1000); 
+            // Background automation loop (Every 5 minutes)
+            setInterval(loadData, 5 * 60 * 1000); 
         };
     </script>
 </body>
