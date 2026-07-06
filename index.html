@@ -68,13 +68,19 @@
                         <span>Macau SMG Live Rain</span>
                         <span id="smgTime" class="text-[10px] text-gray-500 lowercase">syncing...</span>
                     </h3>
-                    <div class="flex flex-col">
-                        <label for="smgTypeSelect" class="text-[9px] uppercase font-bold text-gray-400 mb-1">Display Mode</label>
-                        <select id="smgTypeSelect" class="bg-[#1a1f26] border border-gray-600 text-xs rounded px-2 py-1 text-white focus:outline-none focus:border-cyan-400 w-full">
-                            <option value="4" selected>1-Hour Rolling (一小時雨量)</option>
-                            <option value="3">1-Min Interval (一分鐘雨量)</option>
-                            <option value="5">Daily Accumulation (日累積雨量)</option>
+                    
+                    <div class="grid grid-cols-12 gap-1 items-center mt-1">
+                        <select id="smgTypeSelect" class="col-span-8 bg-[#1a1f26] border border-gray-600 text-[11px] rounded px-1.5 py-1 text-white focus:outline-none focus:border-cyan-400 h-7">
+                            <option value="4" selected>1-Hour Rolling (一小時)</option>
+                            <option value="3">1-Min Interval (一分鐘)</option>
+                            <option value="5">Daily Accum (日累積)</option>
                         </select>
+                        <button id="sortAscBtn" class="col-span-2 bg-[#1a1f26] hover:bg-gray-700 border border-gray-600 text-[10px] text-gray-400 font-bold rounded h-7 flex items-center justify-center transition-all" title="Sort Ascending">
+                            ▲
+                        </button>
+                        <button id="sortDescBtn" class="col-span-2 bg-cyan-700 hover:bg-cyan-600 border border-cyan-500 text-[10px] text-white font-bold rounded h-7 flex items-center justify-center transition-all shadow" title="Sort Descending">
+                            ▼
+                        </button>
                     </div>
                 </div>
                 <div id="macauSmgContainer" class="text-xs text-gray-400 space-y-1 max-h-[320px] overflow-y-auto pr-1">
@@ -119,11 +125,15 @@
         let map;
         let csvData = [];
         let globalSmgStationsCache = [];
+        let currentSortDirection = "desc"; 
         let gridLayerGroup = L.layerGroup(); 
         let radarRingsGroup = L.layerGroup();
 
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
+
+        // Using a highly resilient proxy pipeline that rewrites headers and strips cross-origins completely
+        const globalProxy = "https://thingproxy.freeboard.io/fetch/";
 
         const TARGET_MACAU_STATIONS = {
             "紀念孫中山市政公園": { code: "DP", lat: 22.215322, lon: 113.543490 },
@@ -138,7 +148,6 @@
             "路環市區": { code: "DC", lat: 22.117091, lon: 113.551041 }
         };
 
-        // 一分鐘雨量配色
         function getRain1mColor(valStr) {
             const v = parseFloat(valStr);
             if (isNaN(v)) return "#78797a";
@@ -150,7 +159,6 @@
             return "#636363";
         }
 
-        // 一小時雨量配色
         function getRain1hColor(valStr) {
             const v = parseFloat(valStr);
             if (isNaN(v)) return "#78797a";
@@ -163,7 +171,6 @@
             return "#636363";
         }
 
-        // 日累積雨量配色
         function getRainTotalColor(valStr) {
             const v = parseFloat(valStr);
             if (isNaN(v)) return "#78797a";
@@ -248,12 +255,13 @@
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
 
-            // Fix 1: HKO API supports CORS out-of-the-box. Fetch directly from origin without proxy wrapper.
-            const liveHkoUrl = `https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv?t=${new Date().getTime()}`;
+            // Enforcing proxy wrapper for HKO to wipe client analytics/origins and bypass strict user-agent block
+            const targetHkoUrl = `https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv?t=${new Date().getTime()}`;
+            const proxiedHkoUrl = `${globalProxy}${targetHkoUrl}`;
 
-            fetch(liveHkoUrl)
+            fetch(proxiedHkoUrl)
                 .then(res => {
-                    if (!res.ok) throw new Error(`HKO HTTP error! status: ${res.status}`);
+                    if (!res.ok) throw new Error(`HKO HTTP proxy error! status: ${res.status}`);
                     return res.text();
                 })
                 .then(csvText => {
@@ -271,17 +279,15 @@
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
                 });
 
-            // Fix 2: Switch Macau SMG to a clean JSONP string wrapper fallback to mask browser headers completely
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
-            const fallbackSmgUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetSmgUrl)}`;
+            const proxiedSmgUrl = `${globalProxy}${targetSmgUrl}`;
             
-            fetch(fallbackSmgUrl)
+            fetch(proxiedSmgUrl)
                 .then(res => {
                     if (!res.ok) throw new Error(`SMG Proxy error! status: ${res.status}`);
-                    return res.json();
+                    return res.text();
                 })
-                .then(jsonWrapper => {
-                    const xmlStr = jsonWrapper.contents;
+                .then(xmlStr => {
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlStr, "text/xml");
                     
@@ -339,33 +345,47 @@
                 return;
             }
 
-            globalSmgStationsCache.forEach(station => {
-                let displayPrimaryValue = 0.0;
-                let targetColor = "#636363";
+            let processedList = globalSmgStationsCache.map(station => {
+                let targetVal = 0.0;
+                let color = "#636363";
+                if (activeType === "3") { targetVal = station.r3; color = getRain1mColor(station.r3); }
+                else if (activeType === "4") { targetVal = station.r4; color = getRain1hColor(station.r4); }
+                else if (activeType === "5") { targetVal = station.r5; color = getRainTotalColor(station.r5); }
+                return { ...station, displayVal: targetVal, color: color };
+            });
 
-                if (activeType === "3") {
-                    displayPrimaryValue = station.r3;
-                    targetColor = getRain1mColor(station.r3);
-                } else if (activeType === "4") {
-                    displayPrimaryValue = station.r4;
-                    targetColor = getRain1hColor(station.r4);
-                } else if (activeType === "5") {
-                    displayPrimaryValue = station.r5;
-                    targetColor = getRainTotalColor(station.r5);
-                }
+            processedList.sort((a, b) => {
+                return currentSortDirection === "asc" ? a.displayVal - b.displayVal : b.displayVal - a.displayVal;
+            });
 
+            processedList.forEach(station => {
                 htmlContent += `
                     <div class="bg-[#1a1f26] p-2.5 rounded border border-gray-700/60 flex items-center justify-between shadow-sm">
                         <span class="truncate max-w-[170px] font-medium text-gray-200 text-[11px]">
                             ${station.name} <span class="text-gray-500 text-[9px] font-mono">(${station.code})</span>
                         </span>
-                        <span class="text-white font-black text-xs font-mono px-2 py-0.5 rounded shadow-inner" style="background-color: ${targetColor}">
-                            ${displayPrimaryValue.toFixed(1)} mm
+                        <span class="text-white font-black text-xs font-mono px-2 py-0.5 rounded shadow-inner min-w-[54px] text-center" style="background-color: ${station.color}">
+                            ${station.displayVal.toFixed(1)} mm
                         </span>
                     </div>`;
             });
 
             document.getElementById("macauSmgContainer").innerHTML = htmlContent;
+        }
+
+        function setSortDirection(dir) {
+            currentSortDirection = dir;
+            const ascBtn = document.getElementById('sortAscBtn');
+            const descBtn = document.getElementById('sortDescBtn');
+
+            if (dir === 'asc') {
+                ascBtn.className = "col-span-2 bg-cyan-700 hover:bg-cyan-600 border border-cyan-500 text-[10px] text-white font-bold rounded h-7 flex items-center justify-center transition-all shadow";
+                descBtn.className = "col-span-2 bg-[#1a1f26] hover:bg-gray-700 border border-gray-600 text-[10px] text-gray-400 font-bold rounded h-7 flex items-center justify-center transition-all";
+            } else {
+                descBtn.className = "col-span-2 bg-cyan-700 hover:bg-cyan-600 border border-cyan-500 text-[10px] text-white font-bold rounded h-7 flex items-center justify-center transition-all shadow";
+                ascBtn.className = "col-span-2 bg-[#1a1f26] hover:bg-gray-700 border border-gray-600 text-[10px] text-gray-400 font-bold rounded h-7 flex items-center justify-center transition-all";
+            }
+            renderMacauStations();
         }
 
         function processCSVData(data) {
@@ -522,12 +542,14 @@
             }
         }
 
-        // Global Event Interceptors
         document.getElementById('timeSelect').addEventListener('change', function(e) {
             renderFrame(e.target.value);
         });
         document.getElementById('smgTypeSelect').addEventListener('change', renderMacauStations);
         document.getElementById('refreshBtn').addEventListener('click', loadData);
+        
+        document.getElementById('sortAscBtn').addEventListener('click', () => setSortDirection('asc'));
+        document.getElementById('sortDescBtn').addEventListener('click', () => setSortDirection('desc'));
 
         window.onload = function() {
             initMap();
