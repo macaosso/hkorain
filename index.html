@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HKO Nowcast Rainfall Dashboard</title>
+    <title>HKO Nowcast & Macau SMG Rainfall Dashboard</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -33,8 +33,8 @@
     <header class="bg-[#2d363f] border-b border-gray-700 p-4 flex flex-col sm:flex-row justify-between items-center gap-4 z-10 shadow-md">
         <div class="flex items-center gap-4 flex-wrap">
             <div>
-                <h1 class="text-xl font-bold tracking-wide text-white">HKO Nowcast Gridded Rainfall</h1>
-                <p class="text-xs text-gray-400 mt-1">Interactive GIS Rainfall Dashboard</p>
+                <h1 class="text-xl font-bold tracking-wide text-white">HKO Nowcast & Macau Live Rainfall</h1>
+                <p class="text-xs text-gray-400 mt-1">Interactive GIS Weather & Radar Proximity Dashboard</p>
             </div>
             
             <div id="headerThreatBadge" class="hidden text-xs font-bold px-3 py-1.5 rounded border transition-all"></div>
@@ -62,6 +62,16 @@
                 <div class="text-sm flex justify-between"><span class="text-gray-400">Data Status:</span> <span id="statusBadge" class="text-yellow-400 font-medium">Initializing...</span></div>
                 <div class="text-xs text-gray-500 mt-2" id="lastUpdatedStr"></div>
                 <div class="text-[10px] text-cyan-400 font-medium mt-1 animate-pulse">🔄 Auto-refreshing loop active (5m)</div>
+            </div>
+
+            <div class="bg-[#222a35] p-3 rounded border border-cyan-700">
+                <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                    <span>Macau SMG Live Rain</span>
+                    <span id="smgTime" class="text-[10px] text-gray-500 lowercase">syncing...</span>
+                </h3>
+                <div id="macauSmgContainer" class="text-xs text-gray-400 space-y-1.5">
+                    <p class="text-gray-500 italic py-1">Contacting SMG XML API feed...</p>
+                </div>
             </div>
 
             <div id="macauAlertBox" class="p-3 rounded border border-gray-700 bg-[#222a35]">
@@ -106,6 +116,8 @@
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
         const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
+        // Using an open CORS proxy to safely fetch the SMG XML endpoint inside native clients
+        const smgXmlUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent('https://xml.smg.gov.mo/c_actualweather.xml')}`;
 
         function getRainColor(val) {
             if (val < 0.1) return 'transparent';
@@ -192,6 +204,7 @@
 
             const liveUrl = `${csvUrl}?t=${new Date().getTime()}`;
 
+            // 1. Process HKO Nowcast Gridded Data
             Papa.parse(liveUrl, {
                 download: true,
                 header: true,
@@ -205,6 +218,56 @@
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
                 }
             });
+
+            // 2. Fetch and parse Live Macau SMG XML Data
+            fetch(`${smgXmlUrl}&cache=${new Date().getTime()}`)
+                .then(res => res.text())
+                .then(xmlStr => {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(xmlStr, "text/xml");
+                    
+                    // Pull publication date
+                    const pubDate = xmlDoc.querySelector("SysPubdate")?.textContent || "";
+                    document.getElementById("smgTime").innerText = pubDate ? pubDate.split(" ")[1] : "live";
+
+                    const stations = xmlDoc.querySelectorAll("WeatherStationInfo");
+                    let htmlContent = "";
+                    let counter = 0;
+
+                    stations.forEach(station => {
+                        const name = station.querySelector("Location Name")?.textContent || "Unknown Station";
+                        // Targets the rainfall values element elements inside the Custom structure
+                        const rainValues = station.querySelectorAll("Rainfall Value");
+                        
+                        // Extract indices 3, 4, 5 (representing historical 60min bins safely)
+                        if (rainValues.length >= 6) {
+                            counter++;
+                            const r3 = parseFloat(rainValues[3].textContent || 0);
+                            const r4 = parseFloat(rainValues[4].textContent || 0);
+                            const r5 = parseFloat(rainValues[5].textContent || 0);
+                            const totalAccumulated = (r3 + r4 + r5).toFixed(1);
+
+                            htmlContent += `
+                                <div class="bg-[#1a1f26] p-2 rounded border border-gray-700/60 mb-1 flex flex-col gap-1 shadow-sm">
+                                    <div class="flex justify-between font-medium text-white text-[11px]">
+                                        <span class="truncate max-w-[160px]">${name}</span>
+                                        <span class="text-cyan-400 font-mono">${totalAccumulated} mm</span>
+                                    </div>
+                                    <div class="grid grid-cols-3 gap-1 text-[10px] text-center text-gray-500 font-mono">
+                                        <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">P3: <span class="text-gray-300">${r3}</span></div>
+                                        <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">P4: <span class="text-gray-300">${r4}</span></div>
+                                        <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">P5: <span class="text-gray-300">${r5}</span></div>
+                                    </div>
+                                </div>`;
+                        }
+                    });
+
+                    document.getElementById("macauSmgContainer").innerHTML = htmlContent || '<p class="text-gray-500 italic text-center py-1">No active station indices.</p>';
+                })
+                .catch(err => {
+                    console.error("SMG Feed Error:", err);
+                    document.getElementById("macauSmgContainer").innerHTML = '<p class="text-red-400 font-medium italic text-[11px]">API Network Failure</p>';
+                });
         }
 
         function processCSVData(data) {
@@ -226,11 +289,9 @@
             const currentSelection = timeSelect.value;
             timeSelect.innerHTML = '';
 
-            // Map and calculate threats for ALL time frames simultaneously
             uniqueTimes.forEach(tStr => {
                 let formattedTime = tStr.substring(0,4) + "-" + tStr.substring(4,6) + "-" + tStr.substring(6,8) + " " + tStr.substring(8,10) + ":" + tStr.substring(10,12);
                 
-                // Scan points inside this specific time frame for threats inside the 8km radius
                 const framePoints = csvData.filter(d => d.end_time === tStr);
                 let frameMaxMacauRain = 0;
                 framePoints.forEach(pt => {
@@ -243,10 +304,9 @@
                 let opt = document.createElement('option');
                 opt.value = tStr;
                 
-                // Rule modification: Add a warning tag directly inside the select box options if rain >= 10
                 if (frameMaxMacauRain >= 10.0) {
                     opt.innerText = `⚠️ [${Math.round(frameMaxMacauRain)} mm/h] ${formattedTime}`;
-                    opt.style.color = "#f87171"; // Tint text light red inside native browser dropdown container
+                    opt.style.color = "#f87171";
                 } else {
                     opt.innerText = `✓ ${formattedTime}`;
                     opt.style.color = "#4ade80";
@@ -300,7 +360,6 @@
                 const color = getRainColor(pt.rain);
                 if(color === 'transparent') return;
 
-                // 1. Draw Grid Rectangle Block Box
                 const gridCell = L.rectangle([
                     [pt.lat - 0.01, pt.lon - 0.01],
                     [pt.lat + 0.01, pt.lon + 0.01]
@@ -315,7 +374,6 @@
                 gridCell.bindPopup(`<b>Rainfall Rate:</b> ${pt.rain.toFixed(2)} mm/h<br><b>Coords:</b> ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)}`);
                 gridCell.addTo(gridLayerGroup);
 
-                // 2. Plot numerical text markers if value >= 10 mm/h
                 const roundedRain = Math.round(pt.rain);
                 if (roundedRain >= 10) {
                     L.marker([pt.lat, pt.lon], {
@@ -329,7 +387,6 @@
                     }).addTo(gridLayerGroup);
                 }
 
-                // 3. Proximity validation math rules
                 const distToMacau = getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON);
                 if (distToMacau <= 8.0 && pt.rain > macauMaxRain) {
                     macauMaxRain = pt.rain;
@@ -341,7 +398,6 @@
 
             updateHeaderThreatIndicator(targetTime, macauMaxRain);
 
-            // 4. Update Sidebar Notification Boxes
             if (macauMaxRain >= 20.0) {
                 alertBox.className = "p-3 rounded border border-red-500 bg-red-950/40 animate-pulse";
                 let formattedTime = targetTime.substring(8,10) + ":" + targetTime.substring(10,12);
@@ -384,7 +440,7 @@
             initMap();
             loadData();
             
-            // Background automation loop (Every 5 minutes)
+            // Background automated cycle (Executes every 5 minutes updates)
             setInterval(loadData, 5 * 60 * 1000); 
         };
     </script>
