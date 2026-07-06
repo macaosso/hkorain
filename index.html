@@ -117,7 +117,7 @@
         const MACAU_LON = 113.5685;
         const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
         // Using an open CORS proxy to safely fetch the SMG XML endpoint inside native clients
-        const smgXmlUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+        const smgXmlUrl = `https://corsproxy.io/?${encodeURIComponent('https://xml.smg.gov.mo/c_actualweather.xml')}`;
 
         function getRainColor(val) {
             if (val < 0.1) return 'transparent';
