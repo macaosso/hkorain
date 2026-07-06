@@ -17,11 +17,12 @@
             font-size: 10px;
             font-weight: bold;
         }
+        /* Style for rainfall text on map */
         .map-rain-label {
             background: transparent;
             border: none;
             box-shadow: none;
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 800;
             text-align: center;
             text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
@@ -52,6 +53,7 @@
     </header>
 
     <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+
         <section class="w-full md:w-80 bg-[#2d363f] border-r border-gray-700 p-4 flex flex-col gap-4 overflow-y-auto z-10">
             <div class="bg-[#222a35] p-3 rounded border border-gray-700">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">System Status</h3>
@@ -95,12 +97,13 @@
     <script>
         let map;
         let csvData = [];
-        let smoothOverlay = null; // Canvas Overlay
-        let textLayerGroup = L.layerGroup();
+        let gridLayerGroup = L.layerGroup();
         let radarRingsGroup = L.layerGroup();
 
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
+
+        // Use the relative path deployment strategy 
         const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
 
         function getRainColor(val) {
@@ -115,6 +118,7 @@
             return "#6C074E";
         }
 
+        // Haversine formula to compute distance in kilometers between coordinates
         function getDistanceKM(lat1, lon1, lat2, lon2) {
             const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -137,21 +141,24 @@
                 maxZoom: 19
             }).addTo(map);
 
-            textLayerGroup.addTo(map);
+            gridLayerGroup.addTo(map);
             radarRingsGroup.addTo(map);
+
             drawRadarRings();
         }
 
         function drawRadarRings() {
             radarRingsGroup.clearLayers();
-            
+
+            // Add custom 8 km explicit verification ring (highlighted in light cyan)
             L.circle([MACAU_LAT, MACAU_LON], {
                 radius: 8000,
                 color: '#2fdbeb',
                 weight: 1.2,
                 dashArray: '2, 5',
-                fill: false,
-                opacity: 0.6
+                fill: true,
+                fillColor: '#2fdbeb',
+                fillOpacity: 0.03
             }).addTo(radarRingsGroup);
 
             const distances = [10000, 25000, 50000, 100000]; 
@@ -206,12 +213,11 @@
 
             csvData = data.map(row => {
                 const keys = Object.keys(row);
-                return {
-                    end_time: row[keys[1]] ? row[keys[1]].trim() : '',
-                    lat: parseFloat(row[keys[2]]),
-                    lon: parseFloat(row[keys[3]]),
-                    rain: parseFloat(row[keys[4]])
-                };
+                const end_time = row[keys[1]] ? row[keys[1]].trim() : '';
+                const lat = parseFloat(row[keys[2]]);
+                const lon = parseFloat(row[keys[3]]);
+                const rain = parseFloat(row[keys[4]]);
+                return { end_time, lat, lon, rain };
             }).filter(item => !isNaN(item.lat) && !isNaN(item.lon));
 
             const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].filter(t => t).sort();
@@ -236,56 +242,36 @@
         }
 
         function renderFrame(targetTime) {
-            textLayerGroup.clearLayers();
-            if(smoothOverlay && map.hasLayer(smoothOverlay)) {
-                map.removeLayer(smoothOverlay);
-            }
-
+            gridLayerGroup.clearLayers();
             const filtered = csvData.filter(d => d.end_time === targetTime && d.rain > 0);
-            
+
             const peakContainer = document.getElementById('peakContainer');
             const alertBox = document.getElementById('macauAlertBox');
             const alertContent = document.getElementById('macauAlertContent');
-
+        
             let heavyCores = [];
             let macauMaxRain = 0;
-
-            // Compute global dataset bounds for proper canvas scaling mapping
-            if(filtered.length === 0) return;
-            let lats = filtered.map(p => p.lat), lons = filtered.map(p => p.lon);
-            let minLat = Math.min(...lats), maxLat = Math.max(...lats);
-            let minLon = Math.min(...lons), maxLon = Math.max(...lons);
-
-            // Buffer boundaries slightly to prevent canvas clipping artifacts
-            const bounds = L.latLngBounds([[minLat - 0.03, minLon - 0.03], [maxLat + 0.03, maxLon + 0.03]]);
-
-            // Create canvas element programmatically
-            const canvas = document.createElement('canvas');
-            canvas.width = 600;
-            canvas.height = 600;
-            const ctx = canvas.getContext('2d');
-
+        
             filtered.forEach(pt => {
-                // 1. Plot blurred gradients onto canvas
-                const x = ((pt.lon - bounds.getWest()) / (bounds.getEast() - bounds.getWest())) * canvas.width;
-                const y = (1 - (pt.lat - bounds.getSouth()) / (bounds.getNorth() - bounds.getSouth())) * canvas.height;
                 const color = getRainColor(pt.rain);
-
-                if (color !== 'transparent') {
-                    // Radius size mimics interpolation smoothing 
-                    let rad = pt.rain >= 50 ? 24 : 16;
-                    let grad = ctx.createRadialGradient(x, y, 1, x, y, rad);
-                    grad.addColorStop(0, color);
-                    grad.addColorStop(1, 'transparent');
-                    
-                    ctx.fillStyle = grad;
-                    ctx.globalAlpha = 0.55;
-                    ctx.beginPath();
-                    ctx.arc(x, y, rad, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-
-                // 2. Plot exact text descriptors directly onto map if >= 10 mm/h
+                if(color === 'transparent') return;
+        
+                // 1. Draw Grid Rectangle Block
+                const gridCell = L.rectangle([
+                    [pt.lat - 0.01, pt.lon - 0.01],
+                    [pt.lat + 0.01, pt.lon + 0.01]
+                ], {
+                    color: color,
+                    weight: 0.3,
+                    opacity: 0.2,
+                    fillColor: color,
+                    fillOpacity: 0.5
+                });
+        
+                gridCell.bindPopup(`<b>Rainfall Rate:</b> ${pt.rain.toFixed(2)} mm/h<br><b>Coords:</b> ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)}`);
+                gridCell.addTo(gridLayerGroup);
+        
+                // 2. Only show text markers on the map if the value is >= 10 mm/h
                 const roundedRain = Math.round(pt.rain);
                 if (roundedRain >= 10) {
                     L.marker([pt.lat, pt.lon], {
@@ -296,30 +282,30 @@
                             iconAnchor: [10, 10]
                         }),
                         interactive: false
-                    }).addTo(textLayerGroup);
+                    }).addTo(gridLayerGroup);
                 }
-
-                // 3. Proximity alerts tracking logic
+        
+                // 3. Proximity calculations for Macau Core Core Verification
                 const distToMacau = getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON);
-                if (distToMacau <= 8.0 && pt.rain > macauMaxRain) {
-                    macauMaxRain = pt.rain;
+                if (distToMacau <= 8.0) {
+                    if (pt.rain > macauMaxRain) {
+                        macauMaxRain = pt.rain;
+                    }
                 }
+        
                 if (pt.rain >= 10.0) {
                     heavyCores.push(pt);
                 }
             });
-
-            // Commit canvas projection matrix directly to map as an overlay
-            smoothOverlay = L.imageOverlay(canvas.toDataURL(), bounds, { opacity: 0.85 });
-            smoothOverlay.addTo(map);
-            textLayerGroup.bringToFront(); // Keeps text numbers cleanly on top of smooth contours
-
-            // 4. Update Sidebar Alerts Display Data
+        
+            // 4. Update Macau 8km Proximity Alert Box Window Data
             if (macauMaxRain >= 20.0) {
                 alertBox.className = "p-3 rounded border border-red-500 bg-red-950/40 animate-pulse";
                 let formattedTime = targetTime.substring(8,10) + ":" + targetTime.substring(10,12);
                 alertContent.innerHTML = `
-                    <div class="text-red-400 font-bold flex items-center gap-1.5 mb-1 text-sm">⚠️ CRITICAL IMPACT WARNING</div>
+                    <div class="text-red-400 font-bold flex items-center gap-1.5 mb-1 text-sm">
+                        ⚠️ CRITICAL IMPACT WARNING
+                    </div>
                     <p class="text-gray-200">Heavy core detected within <b>8 km</b> of Macau.</p>
                     <div class="mt-2 text-sm flex justify-between items-center">
                         <span class="text-gray-400">Peak Intensity:</span>
@@ -330,12 +316,14 @@
             } else {
                 alertBox.className = "p-3 rounded border border-gray-700 bg-[#222a35]";
                 alertContent.innerHTML = `
-                    <div class="text-green-400 font-semibold mb-1 flex items-center gap-1">✓ Environment Clear</div>
-                    <p class="text-gray-400 text-[11px]">No rainfall exceeding 20 mm/h inside the 8 km radius. (Current Max: ${macauMaxRain.toFixed(1)} mm/h)</p>
+                    <div class="text-green-400 font-semibold mb-1 flex items-center gap-1">
+                        ✓ Environment Clear
+                    </div>
+                    <p class="text-gray-400 text-[11px]">No rainfall exceeding 20 mm/h detected inside the 8 km radius threshold. (Current Max: ${macauMaxRain.toFixed(1)} mm/h)</p>
                 `;
             }
-
-            // Update List Components metrics
+        
+            // Update regional top list components
             heavyCores.sort((a,b) => b.rain - a.rain);
             if (heavyCores.length > 0) {
                 peakContainer.innerHTML = heavyCores.slice(0, 8).map(pt => 
@@ -352,6 +340,7 @@
         document.getElementById('timeSelect').addEventListener('change', function(e) {
             renderFrame(e.target.value);
         });
+
         document.getElementById('refreshBtn').addEventListener('click', loadData);
 
         window.onload = function() {
