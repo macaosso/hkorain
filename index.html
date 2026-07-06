@@ -8,7 +8,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
-        /* Custom dark styling for Leaflet elements */
         .leaflet-container { background: #222a35 !important; }
         .custom-radar-label {
             background: transparent;
@@ -44,7 +43,6 @@
     </header>
 
     <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        
         <section class="w-full md:w-80 bg-[#2d363f] border-r border-gray-700 p-4 flex flex-col gap-4 overflow-y-auto z-10">
             <div class="bg-[#222a35] p-3 rounded border border-gray-700">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">System Status</h3>
@@ -79,7 +77,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Global variables
         let map;
         let csvData = [];
         let gridLayerGroup = L.layerGroup();
@@ -88,11 +85,10 @@
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
         
-        // HKO API Endpoint through an open CORS Proxy to ensure it loads flawlessly on GitHub Pages
-        // Replace your old csvUrl with this:
-        const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
+        // This format uses corsproxy.io correctly without triggering 404 syntax issues
+        const targetUrl = "https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv";
+        const csvUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
 
-        // HKO Color Palette mapping
         function getRainColor(val) {
             if (val < 0.1) return 'transparent';
             if (val < 1)   return "#15438e";
@@ -105,34 +101,26 @@
             return "#6C074E";
         }
 
-        // Initialize GIS Leaflet Map
         function initMap() {
             map = L.map('map', {
                 center: [22.1595, 113.80],
-                zoom: 9.5,
-                zoomControl: true
+                zoom: 9.5
             });
 
-            // CartoDB Dark Matter base map tiles
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                attribution: '&copy; OpenStreetMap &copy; CartoDB',
-                subdomains: 'abcd',
-                maxZoom: 19
+                attribution: '&copy; OpenStreetMap &copy; CartoDB'
             }).addTo(map);
 
             gridLayerGroup.addTo(map);
             radarRingsGroup.addTo(map);
-
             drawRadarRings();
         }
 
-        // Build radar range grids relative to Macau center point
         function drawRadarRings() {
             radarRingsGroup.clearLayers();
-            const distances = [10000, 25000, 50000, 100000]; // in meters
+            const distances = [10000, 25000, 50000, 100000]; 
             const labels = ['10 km', '25 km', '50 km', '100 km'];
 
-            // Center Marker
             L.circleMarker([MACAU_LAT, MACAU_LON], {
                 radius: 5, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1
             }).addTo(radarRingsGroup);
@@ -147,8 +135,6 @@
                     opacity: 0.5
                 }).addTo(radarRingsGroup);
 
-                // Add label text south of circle
-                // Simple approx conversion offset for label placement
                 const offsetLat = dist / 111320; 
                 L.marker([MACAU_LAT - offsetLat, MACAU_LON], {
                     icon: L.divIcon({
@@ -160,24 +146,30 @@
             });
         }
 
-        // Fetch and parse real time data
         function loadData() {
             document.getElementById('statusBadge').innerText = "Fetching...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
 
-            Papa.parse(csvUrl, {
-                download: true,
-                header: true,
-                skipEmptyLines: true,
-                complete: function(results) {
-                    processCSVData(results.data);
-                },
-                error: function(err) {
-                    console.error("Error reading CSV:", err);
-                    document.getElementById('statusBadge').innerText = "Error Loading";
+            // Direct fetch call over the proxy to keep track of network status anomalies
+            fetch(csvUrl)
+                .then(response => {
+                    if (!response.ok) throw new Error('Network response status was not OK');
+                    return response.text();
+                })
+                .then(csvText => {
+                    Papa.parse(csvText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: function(results) {
+                            processCSVData(results.data);
+                        }
+                    });
+                })
+                .catch(err => {
+                    console.error("Dashboard Fetch Error:", err);
+                    document.getElementById('statusBadge').innerText = "Proxy Error";
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
-                }
-            });
+                });
         }
 
         function processCSVData(data) {
@@ -185,6 +177,7 @@
             
             csvData = data.map(row => {
                 const keys = Object.keys(row);
+                // Dynamically pull indices to bypass Chinese header text encoding shifts
                 const end_time = row[keys[1]] ? row[keys[1]].trim() : '';
                 const lat = parseFloat(row[keys[2]]);
                 const lon = parseFloat(row[keys[3]]);
@@ -192,14 +185,11 @@
                 return { end_time, lat, lon, rain };
             }).filter(item => !isNaN(item.lat) && !isNaN(item.lon));
 
-            // Populate Dropdown Options with unique target timestamps
-            const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].sort();
+            const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].filter(t => t).sort();
             const timeSelect = document.getElementById('timeSelect');
             timeSelect.innerHTML = '';
             
             uniqueTimes.forEach(tStr => {
-                if(!tStr) return;
-                // Parse format e.g., 202607070506 -> 05:06
                 let formattedTime = tStr.substring(0,4) + "-" + tStr.substring(4,6) + "-" + tStr.substring(6,8) + " " + tStr.substring(8,10) + ":" + tStr.substring(10,12);
                 let opt = document.createElement('option');
                 opt.value = tStr;
@@ -211,13 +201,11 @@
             document.getElementById('statusBadge').className = "text-green-400 font-medium";
             document.getElementById('lastUpdatedStr').innerText = "Last checked: " + new Date().toLocaleTimeString();
 
-            // Render default/first timestamp
             if(uniqueTimes.length > 0) {
                 renderFrame(uniqueTimes[0]);
             }
         }
 
-        // Render chosen nowcast step onto map grid
         function renderFrame(targetTime) {
             gridLayerGroup.clearLayers();
             const filtered = csvData.filter(d => d.end_time === targetTime && d.rain > 0);
@@ -229,7 +217,6 @@
                 const color = getRainColor(pt.rain);
                 if(color === 'transparent') return;
 
-                // Create individual grid rectangle block for resolution visibility (approx 0.02 spacing grid elements)
                 const gridCell = L.rectangle([
                     [pt.lat - 0.01, pt.lon - 0.01],
                     [pt.lat + 0.01, pt.lon + 0.01]
@@ -237,19 +224,17 @@
                     color: color,
                     weight: 0,
                     fillColor: color,
-                    fillOpacity: 0.55
+                    fillOpacity: 0.6
                 });
 
                 gridCell.bindPopup(`<b>Rainfall Rate:</b> ${pt.rain.toFixed(2)} mm/h<br><b>Coords:</b> ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)}`);
                 gridCell.addTo(gridLayerGroup);
 
-                // Peak tracking threshold (>= 10mm/h from code logic configuration)
                 if (pt.rain >= 10.0) {
                     heavyCores.push(pt);
                 }
             });
 
-            // Handle Heavy core metrics printing inside Sidebar
             heavyCores.sort((a,b) => b.rain - a.rain);
             if (heavyCores.length > 0) {
                 peakContainer.innerHTML = heavyCores.slice(0, 8).map(pt => 
@@ -263,14 +248,11 @@
             }
         }
 
-        // Event hooks
         document.getElementById('timeSelect').addEventListener('change', function(e) {
             renderFrame(e.target.value);
         });
-
         document.getElementById('refreshBtn').addEventListener('click', loadData);
 
-        // Run dashboard on window startup
         window.onload = function() {
             initMap();
             loadData();
