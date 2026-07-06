@@ -117,7 +117,7 @@
         const MACAU_LON = 113.5685;
         const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
         // Using an open CORS proxy to safely fetch the SMG XML endpoint inside native clients
-        const smgXmlUrl = `https://corsproxy.io/?${encodeURIComponent('https://xml.smg.gov.mo/c_actualweather.xml')}`;
+        const smgProxyUrl = "https://corsproxy.io/?";
 
         function getRainColor(val) {
             if (val < 0.1) return 'transparent';
@@ -220,8 +220,15 @@
             });
 
             // 2. Fetch and parse Live Macau SMG XML Data
-            fetch(`${smgXmlUrl}&cache=${new Date().getTime()}`)
-                .then(res => res.text())
+            // 2. Fetch and parse Live Macau SMG XML Data
+            const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
+            const finalSmgUrl = `${smgProxyUrl}${encodeURIComponent(targetSmgUrl)}`;
+            
+            fetch(finalSmgUrl)
+                .then(res => {
+                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                    return res.text();
+                })
                 .then(xmlStr => {
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlStr, "text/xml");
@@ -229,24 +236,22 @@
                     // Pull publication date
                     const pubDate = xmlDoc.querySelector("SysPubdate")?.textContent || "";
                     document.getElementById("smgTime").innerText = pubDate ? pubDate.split(" ")[1] : "live";
-
+            
                     const stations = xmlDoc.querySelectorAll("WeatherStationInfo");
                     let htmlContent = "";
-                    let counter = 0;
-
+            
                     stations.forEach(station => {
-                        const name = station.querySelector("Location Name")?.textContent || "Unknown Station";
-                        // Targets the rainfall values element elements inside the Custom structure
+                        const name = station.querySelector("Location Name")?.textContent || 
+                                     station.querySelector("Name")?.textContent || "Unknown Station";
+                        
                         const rainValues = station.querySelectorAll("Rainfall Value");
                         
-                        // Extract indices 3, 4, 5 (representing historical 60min bins safely)
                         if (rainValues.length >= 6) {
-                            counter++;
                             const r3 = parseFloat(rainValues[3].textContent || 0);
                             const r4 = parseFloat(rainValues[4].textContent || 0);
                             const r5 = parseFloat(rainValues[5].textContent || 0);
                             const totalAccumulated = (r3 + r4 + r5).toFixed(1);
-
+            
                             htmlContent += `
                                 <div class="bg-[#1a1f26] p-2 rounded border border-gray-700/60 mb-1 flex flex-col gap-1 shadow-sm">
                                     <div class="flex justify-between font-medium text-white text-[11px]">
@@ -261,12 +266,12 @@
                                 </div>`;
                         }
                     });
-
+            
                     document.getElementById("macauSmgContainer").innerHTML = htmlContent || '<p class="text-gray-500 italic text-center py-1">No active station indices.</p>';
                 })
                 .catch(err => {
                     console.error("SMG Feed Error:", err);
-                    document.getElementById("macauSmgContainer").innerHTML = '<p class="text-red-400 font-medium italic text-[11px]">API Network Failure</p>';
+                    document.getElementById("macauSmgContainer").innerHTML = `<p class="text-red-400 font-medium italic text-[11px]">API Failure (${err.message})</p>`;
                 });
         }
 
