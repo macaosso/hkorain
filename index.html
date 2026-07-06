@@ -259,7 +259,9 @@
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
 
             const targetHkoUrl = `https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv?t=${new Date().getTime()}`;
-            const proxiedHkoUrl = `${globalProxy}${encodeURIComponent(targetHkoUrl)}`;
+            
+            // Fallback alternative pipeline for HKO using the ultra-resilient Weserv caching gateway
+            const proxiedHkoUrl = `https://images.weserv.nl/?url=${encodeURIComponent(targetHkoUrl)}&default=${encodeURIComponent(targetHkoUrl)}&n=-1`;
 
             fetch(proxiedHkoUrl)
                 .then(res => {
