@@ -65,11 +65,21 @@
             </div>
 
             <div class="bg-[#222a35] p-3 rounded border border-cyan-700">
-                <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                    <span>Macau SMG Live Rain</span>
-                    <span id="smgTime" class="text-[10px] text-gray-500 lowercase">syncing...</span>
-                </h3>
-                <div id="macauSmgContainer" class="text-xs text-gray-400 space-y-1.5">
+                <div class="flex flex-col gap-2 mb-3">
+                    <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center justify-between">
+                        <span>Macau SMG Live Rain</span>
+                        <span id="smgTime" class="text-[10px] text-gray-500 lowercase">syncing...</span>
+                    </h3>
+                    <div class="flex flex-col">
+                        <label for="smgTypeSelect" class="text-[9px] uppercase font-bold text-gray-400 mb-1">Display Mode</label>
+                        <select id="smgTypeSelect" class="bg-[#1a1f26] border border-gray-600 text-xs rounded px-2 py-1 text-white focus:outline-none focus:border-cyan-400 w-full">
+                            <option value="4" selected>1-Hour Rolling (一小時雨量)</option>
+                            <option value="3">1-Min Interval (一分鐘雨量)</option>
+                            <option value="5">Daily Accumulation (日累積雨量)</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="macauSmgContainer" class="text-xs text-gray-400 space-y-1.5 max-h-[350px] overflow-y-auto pr-1">
                     <p class="text-gray-500 italic py-1">Contacting SMG XML API feed...</p>
                 </div>
             </div>
@@ -110,17 +120,29 @@
     <script>
         let map;
         let csvData = [];
+        let globalSmgStationsCache = [];
         let gridLayerGroup = L.layerGroup(); 
         let radarRingsGroup = L.layerGroup();
 
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
-        // Old version pointing to slow static file:
-// const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
+        
+        // Data pipeline targets
+        const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
+        const proxyUrl = "https://api.allorigins.win/raw?url=";
 
-// New version pointing directly to the source via proxy:
-        const csvUrl = "https://corsproxy.io/?" + encodeURIComponent("https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv");
-        const smgProxyUrl = "https://corsproxy.io/?";
+        const TARGET_MACAU_STATIONS = {
+            "紀念孫中山市政公園": "DP",
+            "黑沙環": "EM",
+            "大炮台": "FM",
+            "外港": "PE",
+            "媽閣": "MM",
+            "大潭山": "TG",
+            "東亞運大馬路": "JA",
+            "九澳": "KV",
+            "澳門大學": "UM",
+            "路環市區": "DC"
+        };
 
         function getRainColor(val) {
             if (val < 0.1) return 'transparent';
@@ -204,11 +226,11 @@
         function loadData() {
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
-        
-            // Force PapaParse to bypass browser cache and grab your fresh GitHub page push
-            const localCsvWithCacheBuster = `./Gridded_rainfall_nowcast_tc.csv?v=${new Date().getTime()}`;
-        
-            Papa.parse(localCsvWithCacheBuster, {
+
+            // Local cached asset route for HKO data pipeline
+            const liveUrl = `${csvUrl}?t=${new Date().getTime()}`;
+
+            Papa.parse(liveUrl, {
                 download: true,
                 header: true,
                 skipEmptyLines: true,
@@ -222,8 +244,9 @@
                 }
             });
 
+            // Fetch and parse Live Macau SMG XML Data via header-stripping proxy
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
-            const finalSmgUrl = `${smgProxyUrl}${encodeURIComponent(targetSmgUrl)}`;
+            const finalSmgUrl = `${proxyUrl}${encodeURIComponent(targetSmgUrl)}`;
             
             fetch(finalSmgUrl)
                 .then(res => {
@@ -236,48 +259,70 @@
                     
                     const pubDate = xmlDoc.querySelector("SysPubdate")?.textContent || "";
                     document.getElementById("smgTime").innerText = pubDate ? pubDate.split(" ")[1] : "live";
-                    
-                    // Look for weather station nodes
+            
                     const stations = xmlDoc.querySelectorAll("WeatherStationInfo");
-                    let htmlContent = "";
-                    
+                    globalSmgStationsCache = [];
+            
                     stations.forEach(station => {
-                        // Robust naming checks to catch variant tags
-                        const name = station.querySelector("Location Name")?.textContent || 
-                                     station.querySelector("Name")?.textContent || "Unknown Station";
+                        const rawName = station.querySelector("Location Name")?.textContent || 
+                                        station.querySelector("Name")?.textContent || "";
                         
-                        // Explicitly target by the 'type' attribute instead of relying on sequence order
-                        const r3Node = station.querySelector('Rainfall[type="3"]');
-                        const r4Node = station.querySelector('Rainfall[type="4"]');
-                        const r5Node = station.querySelector('Rainfall[type="5"]');
-                    
-                        // Parse the values safely if the node exists, default to 0.0 if omitted
-                        const r3 = r3Node ? parseFloat(r3Node.textContent || 0) : 0.0;
-                        const r4 = r4Node ? parseFloat(r4Node.textContent || 0) : 0.0;
-                        const r5 = r5Node ? parseFloat(r5Node.textContent || 0) : 0.0;
+                        // Strict filter checking to cleanly preserve order and match keys
+                        const matchedNameKey = Object.keys(TARGET_MACAU_STATIONS).find(k => rawName.includes(k));
                         
-                        const totalAccumulated = (r3 + r4 + r5).toFixed(1);
-                    
-                        htmlContent += `
-                            <div class="bg-[#1a1f26] p-2 rounded border border-gray-700/60 mb-1 flex flex-col gap-1 shadow-sm">
-                                <div class="flex justify-between font-medium text-white text-[11px]">
-                                    <span class="truncate max-w-[160px]">${name}</span>
-                                    <span class="text-cyan-400 font-mono">${totalAccumulated} mm</span>
-                                </div>
-                                <div class="grid grid-cols-3 gap-1 text-[10px] text-center text-gray-500 font-mono">
-                                    <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">T3: <span class="text-gray-300">${r3}</span></div>
-                                    <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">T4: <span class="text-gray-300">${r4}</span></div>
-                                    <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">T5: <span class="text-gray-300">${r5}</span></div>
-                                </div>
-                            </div>`;
+                        if (matchedNameKey) {
+                            const r3Node = station.querySelector('Rainfall[type="3"]');
+                            const r4Node = station.querySelector('Rainfall[type="4"]');
+                            const r5Node = station.querySelector('Rainfall[type="5"]');
+
+                            globalSmgStationsCache.push({
+                                name: matchedNameKey,
+                                code: TARGET_MACAU_STATIONS[matchedNameKey],
+                                r3: r3Node ? parseFloat(r3Node.textContent || 0) : 0.0,
+                                r4: r4Node ? parseFloat(r4Node.textContent || 0) : 0.0,
+                                r5: r5Node ? parseFloat(r5Node.textContent || 0) : 0.0
+                            });
+                        }
                     });
             
-                    document.getElementById("macauSmgContainer").innerHTML = htmlContent || '<p class="text-gray-500 italic text-center py-1">No active station indices.</p>';
+                    renderMacauStations();
                 })
                 .catch(err => {
                     console.error("SMG Feed Error:", err);
                     document.getElementById("macauSmgContainer").innerHTML = `<p class="text-red-400 font-medium italic text-[11px]">API Failure (${err.message})</p>`;
                 });
+        }
+
+        function renderMacauStations() {
+            const activeType = document.getElementById("smgTypeSelect").value;
+            let htmlContent = "";
+
+            if (globalSmgStationsCache.length === 0) {
+                document.getElementById("macauSmgContainer").innerHTML = '<p class="text-gray-500 italic text-center py-1">No active station indices matched.</p>';
+                return;
+            }
+
+            globalSmgStationsCache.forEach(station => {
+                let displayPrimaryValue = 0.0;
+                if (activeType === "3") displayPrimaryValue = station.r3;
+                else if (activeType === "4") displayPrimaryValue = station.r4;
+                else if (activeType === "5") displayPrimaryValue = station.r5;
+
+                htmlContent += `
+                    <div class="bg-[#1a1f26] p-2.5 rounded border border-gray-700/60 mb-1 flex flex-col gap-1.5 shadow-sm">
+                        <div class="flex justify-between items-baseline font-medium text-white text-[11px]">
+                            <span class="truncate max-w-[170px] text-gray-200">${station.name} <span class="text-gray-500 text-[9px] font-mono">(${station.code})</span></span>
+                            <span class="text-cyan-400 font-black text-xs font-mono">${displayPrimaryValue.toFixed(1)} mm</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-1 text-[10px] text-center text-gray-500 font-mono">
+                            <div class="bg-[#222a35]/60 rounded p-0.5 border ${activeType === '3' ? 'border-cyan-500 text-cyan-300' : 'border-gray-800'}">1m: <span class="${activeType === '3' ? 'text-cyan-300' : 'text-gray-400'}">${station.r3.toFixed(1)}</span></div>
+                            <div class="bg-[#222a35]/60 rounded p-0.5 border ${activeType === '4' ? 'border-cyan-500 text-cyan-300' : 'border-gray-800'}">1h: <span class="${activeType === '4' ? 'text-cyan-300' : 'text-gray-400'}">${station.r4.toFixed(1)}</span></div>
+                            <div class="bg-[#222a35]/60 rounded p-0.5 border ${activeType === '5' ? 'border-cyan-500 text-cyan-300' : 'border-gray-800'}">24h: <span class="${activeType === '5' ? 'text-cyan-300' : 'text-gray-400'}">${station.r5.toFixed(1)}</span></div>
+                        </div>
+                    </div>`;
+            });
+
+            document.getElementById("macauSmgContainer").innerHTML = htmlContent;
         }
 
         function processCSVData(data) {
@@ -358,7 +403,6 @@
             gridLayerGroup.clearLayers();
             
             const filtered = csvData.filter(d => d.end_time === targetTime && d.rain > 0);
-            
             const peakContainer = document.getElementById('peakContainer');
             const alertBox = document.getElementById('macauAlertBox');
             const alertContent = document.getElementById('macauAlertContent');
@@ -441,9 +485,11 @@
             }
         }
 
+        // Event Interceptors
         document.getElementById('timeSelect').addEventListener('change', function(e) {
             renderFrame(e.target.value);
         });
+        document.getElementById('smgTypeSelect').addEventListener('change', renderMacauStations);
         document.getElementById('refreshBtn').addEventListener('click', loadData);
 
         window.onload = function() {
