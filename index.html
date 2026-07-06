@@ -226,10 +226,11 @@
         function loadData() {
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
-
-            // Local cached asset route for HKO data pipeline
-            const liveUrl = `${csvUrl}?t=${new Date().getTime()}`;
-
+        
+            // 1. Bypass local repo file entirely. Fetch directly from HKO using the proxy
+            const rawHkoUrl = `https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv?t=${new Date().getTime()}`;
+            const liveUrl = `${proxyUrl}${encodeURIComponent(rawHkoUrl)}`;
+        
             Papa.parse(liveUrl, {
                 download: true,
                 header: true,
@@ -243,8 +244,8 @@
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
                 }
             });
-
-            // Fetch and parse Live Macau SMG XML Data via header-stripping proxy
+        
+            // 2. Fetch and parse Live Macau SMG XML Data (Keeps working exactly as before)
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
             const finalSmgUrl = `${proxyUrl}${encodeURIComponent(targetSmgUrl)}`;
             
