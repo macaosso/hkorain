@@ -36,7 +36,6 @@
                 <h1 class="text-xl font-bold tracking-wide text-white">HKO Nowcast & Macau Live Rainfall</h1>
                 <p class="text-xs text-gray-400 mt-1">Interactive GIS Weather & Radar Proximity Dashboard</p>
             </div>
-            
             <div id="headerThreatBadge" class="hidden text-xs font-bold px-3 py-1.5 rounded border transition-all"></div>
         </div>
 
@@ -47,7 +46,6 @@
                     <option value="">Loading times...</option>
                 </select>
             </div>
-
             <button id="refreshBtn" class="bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold px-4 py-2 rounded shadow transition-all flex items-center gap-2 mt-4 sm:mt-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.253 8H18"></path></svg>
                 Refresh Data
@@ -79,7 +77,7 @@
                         </select>
                     </div>
                 </div>
-                <div id="macauSmgContainer" class="text-xs text-gray-400 space-y-1.5 max-h-[350px] overflow-y-auto pr-1">
+                <div id="macauSmgContainer" class="text-xs text-gray-400 space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
                     <p class="text-gray-500 italic py-1">Contacting SMG XML API feed...</p>
                 </div>
             </div>
@@ -107,7 +105,7 @@
 
             <div class="bg-[#222a35] p-3 rounded border border-gray-700 flex-1">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Regional Heavy Cores</h3>
-                <div id="peakContainer" class="text-xs text-gray-400 max-h-[200px] overflow-y-auto space-y-1">
+                <div id="peakContainer" class="text-xs text-gray-400 max-h-[150px] overflow-y-auto space-y-1">
                     No heavy rain cells active.
                 </div>
             </div>
@@ -127,21 +125,21 @@
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
         
-        // Data pipeline targets
-        const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
+        // Stable Public CORS Proxy Server
         const proxyUrl = "https://corsproxy.io/?";
 
+        // Structured configuration mapping metadata and explicit geo-coordinates
         const TARGET_MACAU_STATIONS = {
-            "紀念孫中山市政公園": "DP",
-            "黑沙環": "EM",
-            "大炮台": "FM",
-            "外港": "PE",
-            "媽閣": "MM",
-            "大潭山": "TG",
-            "東亞運大馬路": "JA",
-            "九澳": "KV",
-            "澳門大學": "UM",
-            "路環市區": "DC"
+            "紀念孫中山市政公園": { code: "DP", lat: 22.215322, lon: 113.543490 },
+            "黑沙環": { code: "EM", lat: 22.207129, lon: 113.559971 },
+            "大炮台": { code: "FM", lat: 22.197066, lon: 113.542261 },
+            "外港": { code: "PE", lat: 22.196556, lon: 113.558333 },
+            "媽閣": { code: "MM", lat: 22.185863, lon: 113.530675 },
+            "大潭山": { code: "TG", lat: 22.159102, lon: 113.568947 },
+            "東亞運大馬路": { code: "JA", lat: 22.155396, lon: 113.542412 },
+            "九澳": { code: "KV", lat: 22.134686, lon: 113.580143 },
+            "澳門大學": { code: "UM", lat: 22.131808, lon: 113.546970 },
+            "路環市區": { code: "DC", lat: 22.117091, lon: 113.551041 }
         };
 
         function getRainColor(val) {
@@ -187,12 +185,7 @@
             radarRingsGroup.clearLayers();
             
             L.circle([MACAU_LAT, MACAU_LON], {
-                radius: 8000,
-                color: '#2fdbeb',
-                weight: 1.4,
-                dashArray: '2, 5',
-                fill: false,
-                opacity: 0.7
+                radius: 8000, color: '#2fdbeb', weight: 1.4, dashArray: '2, 5', fill: false, opacity: 0.7
             }).addTo(radarRingsGroup);
 
             const distances = [10000, 25000, 50000, 100000]; 
@@ -204,12 +197,7 @@
 
             distances.forEach((dist, idx) => {
                 L.circle([MACAU_LAT, MACAU_LON], {
-                    radius: dist,
-                    color: '#949494',
-                    weight: 0.8,
-                    dashArray: '4, 4',
-                    fill: false,
-                    opacity: 0.4
+                    radius: dist, color: '#949494', weight: 0.8, dashArray: '4, 4', fill: false, opacity: 0.4
                 }).addTo(radarRingsGroup);
 
                 const offsetLat = dist / 111320; 
@@ -226,11 +214,11 @@
         function loadData() {
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
-        
-            // 1. Fetch HKO Data via CorsProxy
+
+            // 1. Fetch HKO Data via Proxy directly from source
             const rawHkoUrl = `https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv?t=${new Date().getTime()}`;
             const liveUrl = `${proxyUrl}${encodeURIComponent(rawHkoUrl)}`;
-        
+
             Papa.parse(liveUrl, {
                 download: true,
                 header: true,
@@ -244,8 +232,8 @@
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
                 }
             });
-        
-            // 2. Fetch Macau SMG Data via CorsProxy
+
+            // 2. Fetch Macau SMG XML Data via Proxy
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
             const finalSmgUrl = `${proxyUrl}${encodeURIComponent(targetSmgUrl)}`;
             
@@ -255,43 +243,52 @@
                     return res.text();
                 })
                 .then(xmlStr => {
-                    // ... (Your XML parsing code remains exactly identical)
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlStr, "text/xml");
                     
-                    const pubDate = xmlDoc.querySelector("SysPubdate")?.textContent || "";
-                    document.getElementById("smgTime").innerText = pubDate ? pubDate.split(" ")[1] : "live";
-            
-                    const stations = xmlDoc.querySelectorAll("WeatherStationInfo");
+                    const pubDateNode = xmlDoc.querySelector("RecordTime");
+                    if (pubDateNode) {
+                        document.getElementById("smgTime").innerText = pubDateNode.textContent.split(" ")[1];
+                    }
+
+                    const stations = xmlDoc.querySelectorAll("station");
                     globalSmgStationsCache = [];
-            
-                    stations.forEach(station => {
-                        const rawName = station.querySelector("Location Name")?.textContent || 
-                                        station.querySelector("Name")?.textContent || "";
+
+                    stations.forEach(stationNode => {
+                        const rawName = stationNode.querySelector("stationname")?.textContent || "";
+                        const matchedKey = Object.keys(TARGET_MACAU_STATIONS).find(k => rawName.includes(k));
                         
-                        // Strict filter checking to cleanly preserve order and match keys
-                        const matchedNameKey = Object.keys(TARGET_MACAU_STATIONS).find(k => rawName.includes(k));
-                        
-                        if (matchedNameKey) {
-                            const r3Node = station.querySelector('Rainfall[type="3"]');
-                            const r4Node = station.querySelector('Rainfall[type="4"]');
-                            const r5Node = station.querySelector('Rainfall[type="5"]');
+                        if (matchedKey) {
+                            const stationMeta = TARGET_MACAU_STATIONS[matchedKey];
+                            let r3 = 0.0, r4 = 0.0, r5 = 0.0;
+
+                            // Handle nested child nodes (<Type> inside <Rainfall>)
+                            const rainfallNodes = stationNode.querySelectorAll("Rainfall");
+                            rainfallNodes.forEach(rainNode => {
+                                const type = rainNode.querySelector("Type")?.textContent || "";
+                                const value = parseFloat(rainNode.querySelector("Value")?.textContent || 0);
+
+                                if (type === "3") r3 = value;
+                                else if (type === "4") r4 = value;
+                                else if (type === "5") r5 = value;
+                            });
 
                             globalSmgStationsCache.push({
-                                name: matchedNameKey,
-                                code: TARGET_MACAU_STATIONS[matchedNameKey],
-                                r3: r3Node ? parseFloat(r3Node.textContent || 0) : 0.0,
-                                r4: r4Node ? parseFloat(r4Node.textContent || 0) : 0.0,
-                                r5: r5Node ? parseFloat(r5Node.textContent || 0) : 0.0
+                                name: matchedKey,
+                                code: stationMeta.code,
+                                lat: stationMeta.lat,
+                                lon: stationMeta.lon,
+                                r3: r3, r4: r4, r5: r5
                             });
                         }
                     });
-            
+
                     renderMacauStations();
                 })
                 .catch(err => {
                     console.error("SMG Feed Error:", err);
-                    document.getElementById("macauSmgContainer").innerHTML = `<p class="text-red-400 font-medium italic text-[11px]">API Failure (${err.message})</p>`;
+                    document.getElementById("macauSmgContainer").innerHTML = 
+                        `<p class="text-red-400 font-medium italic text-[11px]">API Failure (${err.message})</p>`;
                 });
         }
 
@@ -317,9 +314,9 @@
                             <span class="text-cyan-400 font-black text-xs font-mono">${displayPrimaryValue.toFixed(1)} mm</span>
                         </div>
                         <div class="grid grid-cols-3 gap-1 text-[10px] text-center text-gray-500 font-mono">
-                            <div class="bg-[#222a35]/60 rounded p-0.5 border ${activeType === '3' ? 'border-cyan-500 text-cyan-300' : 'border-gray-800'}">1m: <span class="${activeType === '3' ? 'text-cyan-300' : 'text-gray-400'}">${station.r3.toFixed(1)}</span></div>
-                            <div class="bg-[#222a35]/60 rounded p-0.5 border ${activeType === '4' ? 'border-cyan-500 text-cyan-300' : 'border-gray-800'}">1h: <span class="${activeType === '4' ? 'text-cyan-300' : 'text-gray-400'}">${station.r4.toFixed(1)}</span></div>
-                            <div class="bg-[#222a35]/60 rounded p-0.5 border ${activeType === '5' ? 'border-cyan-500 text-cyan-300' : 'border-gray-800'}">24h: <span class="${activeType === '5' ? 'text-cyan-300' : 'text-gray-400'}">${station.r5.toFixed(1)}</span></div>
+                            <div class="bg-[#222a35]/60 rounded p-0.5 border ${activeType === '3' ? 'border-cyan-500 text-cyan-300 font-bold' : 'border-gray-800'}">1m: <span>${station.r3.toFixed(1)}</span></div>
+                            <div class="bg-[#222a35]/60 rounded p-0.5 border ${activeType === '4' ? 'border-cyan-500 text-cyan-300 font-bold' : 'border-gray-800'}">1h: <span>${station.r4.toFixed(1)}</span></div>
+                            <div class="bg-[#222a35]/60 rounded p-0.5 border ${activeType === '5' ? 'border-cyan-500 text-cyan-300 font-bold' : 'border-gray-800'}">24h: <span>${station.r5.toFixed(1)}</span></div>
                         </div>
                     </div>`;
             });
@@ -368,7 +365,6 @@
                     opt.innerText = `✓ ${formattedTime}`;
                     opt.style.color = "#4ade80";
                 }
-                
                 timeSelect.appendChild(opt);
             });
 
@@ -420,11 +416,7 @@
                     [pt.lat - 0.01, pt.lon - 0.01],
                     [pt.lat + 0.01, pt.lon + 0.01]
                 ], {
-                    color: color,
-                    weight: 0.3,
-                    opacity: 0.4,
-                    fillColor: color,
-                    fillOpacity: 0.55
+                    color: color, weight: 0.3, opacity: 0.4, fillColor: color, fillOpacity: 0.55
                 });
 
                 gridCell.bindPopup(`<b>Rainfall Rate:</b> ${pt.rain.toFixed(2)} mm/h<br><b>Coords:</b> ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)}`);
@@ -436,8 +428,7 @@
                         icon: L.divIcon({
                             className: 'map-rain-label',
                             html: `<span style="color: ${color};">${roundedRain}</span>`,
-                            iconSize: [20, 20],
-                            iconAnchor: [10, 10]
+                            iconSize: [20, 20], iconAnchor: [10, 10]
                         }),
                         interactive: false
                     }).addTo(gridLayerGroup);
@@ -487,7 +478,7 @@
             }
         }
 
-        // Event Interceptors
+        // Global Event Interceptors
         document.getElementById('timeSelect').addEventListener('change', function(e) {
             renderFrame(e.target.value);
         });
@@ -497,7 +488,7 @@
         window.onload = function() {
             initMap();
             loadData();
-            setInterval(loadData, 5 * 60 * 1000); 
+            setInterval(loadData, 5 * 60 * 1000); // Clean 5-minute automated background loop execution
         };
     </script>
 </body>
