@@ -236,35 +236,40 @@
                     
                     const pubDate = xmlDoc.querySelector("SysPubdate")?.textContent || "";
                     document.getElementById("smgTime").innerText = pubDate ? pubDate.split(" ")[1] : "live";
-            
+                    
+                    // Look for weather station nodes
                     const stations = xmlDoc.querySelectorAll("WeatherStationInfo");
                     let htmlContent = "";
-            
+                    
                     stations.forEach(station => {
+                        // Robust naming checks to catch variant tags
                         const name = station.querySelector("Location Name")?.textContent || 
                                      station.querySelector("Name")?.textContent || "Unknown Station";
                         
-                        const rainValues = station.querySelectorAll("Rainfall Value");
+                        // Explicitly target by the 'type' attribute instead of relying on sequence order
+                        const r3Node = station.querySelector('Rainfall[type="3"]');
+                        const r4Node = station.querySelector('Rainfall[type="4"]');
+                        const r5Node = station.querySelector('Rainfall[type="5"]');
+                    
+                        // Parse the values safely if the node exists, default to 0.0 if omitted
+                        const r3 = r3Node ? parseFloat(r3Node.textContent || 0) : 0.0;
+                        const r4 = r4Node ? parseFloat(r4Node.textContent || 0) : 0.0;
+                        const r5 = r5Node ? parseFloat(r5Node.textContent || 0) : 0.0;
                         
-                        if (rainValues.length >= 6) {
-                            const r3 = parseFloat(rainValues[3].textContent || 0);
-                            const r4 = parseFloat(rainValues[4].textContent || 0);
-                            const r5 = parseFloat(rainValues[5].textContent || 0);
-                            const totalAccumulated = (r3 + r4 + r5).toFixed(1);
-            
-                            htmlContent += `
-                                <div class="bg-[#1a1f26] p-2 rounded border border-gray-700/60 mb-1 flex flex-col gap-1 shadow-sm">
-                                    <div class="flex justify-between font-medium text-white text-[11px]">
-                                        <span class="truncate max-w-[160px]">${name}</span>
-                                        <span class="text-cyan-400 font-mono">${totalAccumulated} mm</span>
-                                    </div>
-                                    <div class="grid grid-cols-3 gap-1 text-[10px] text-center text-gray-500 font-mono">
-                                        <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">P3: <span class="text-gray-300">${r3}</span></div>
-                                        <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">P4: <span class="text-gray-300">${r4}</span></div>
-                                        <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">P5: <span class="text-gray-300">${r5}</span></div>
-                                    </div>
-                                </div>`;
-                        }
+                        const totalAccumulated = (r3 + r4 + r5).toFixed(1);
+                    
+                        htmlContent += `
+                            <div class="bg-[#1a1f26] p-2 rounded border border-gray-700/60 mb-1 flex flex-col gap-1 shadow-sm">
+                                <div class="flex justify-between font-medium text-white text-[11px]">
+                                    <span class="truncate max-w-[160px]">${name}</span>
+                                    <span class="text-cyan-400 font-mono">${totalAccumulated} mm</span>
+                                </div>
+                                <div class="grid grid-cols-3 gap-1 text-[10px] text-center text-gray-500 font-mono">
+                                    <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">T3: <span class="text-gray-300">${r3}</span></div>
+                                    <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">T4: <span class="text-gray-300">${r4}</span></div>
+                                    <div class="bg-[#222a35]/60 rounded p-0.5 border border-gray-800">T5: <span class="text-gray-300">${r5}</span></div>
+                                </div>
+                            </div>`;
                     });
             
                     document.getElementById("macauSmgContainer").innerHTML = htmlContent || '<p class="text-gray-500 italic text-center py-1">No active station indices.</p>';
