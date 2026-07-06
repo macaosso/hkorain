@@ -116,7 +116,6 @@
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
         const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
-        // Using an open CORS proxy to safely fetch the SMG XML endpoint inside native clients
         const smgProxyUrl = "https://corsproxy.io/?";
 
         function getRainColor(val) {
@@ -204,7 +203,6 @@
 
             const liveUrl = `${csvUrl}?t=${new Date().getTime()}`;
 
-            // 1. Process HKO Nowcast Gridded Data
             Papa.parse(liveUrl, {
                 download: true,
                 header: true,
@@ -219,8 +217,6 @@
                 }
             });
 
-            // 2. Fetch and parse Live Macau SMG XML Data
-            // 2. Fetch and parse Live Macau SMG XML Data
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
             const finalSmgUrl = `${smgProxyUrl}${encodeURIComponent(targetSmgUrl)}`;
             
@@ -233,7 +229,6 @@
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlStr, "text/xml");
                     
-                    // Pull publication date
                     const pubDate = xmlDoc.querySelector("SysPubdate")?.textContent || "";
                     document.getElementById("smgTime").innerText = pubDate ? pubDate.split(" ")[1] : "live";
             
@@ -444,8 +439,6 @@
         window.onload = function() {
             initMap();
             loadData();
-            
-            // Background automated cycle (Executes every 5 minutes updates)
             setInterval(loadData, 5 * 60 * 1000); 
         };
     </script>
