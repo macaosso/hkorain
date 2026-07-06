@@ -31,16 +31,16 @@
 <body class="bg-[#1a1f26] text-gray-100 font-sans h-screen flex flex-col overflow-hidden">
 
     <header class="bg-[#2d363f] border-b border-gray-700 p-4 flex flex-col sm:flex-row justify-between items-center gap-4 z-10 shadow-md">
-        <div>
-            <h1 class="text-xl font-bold tracking-wide text-white">HKO Nowcast Gridded Rainfall</h1>
-            <p class="text-xs text-gray-400 mt-1">Interactive GIS Rainfall Dashboard</p>
+        <div class="flex items-center gap-4 flex-wrap">
+            <div>
+                <h1 class="text-xl font-bold tracking-wide text-white">HKO Nowcast Gridded Rainfall</h1>
+                <p class="text-xs text-gray-400 mt-1">Interactive GIS Rainfall Dashboard</p>
+            </div>
+            
+            <div id="headerThreatBadge" class="hidden text-xs font-bold px-3 py-1.5 rounded border transition-all"></div>
         </div>
 
         <div class="flex flex-wrap items-center gap-3">
-            <button id="notifyAuthBtn" class="bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold px-3 py-2 rounded shadow hidden transition-all flex items-center gap-1.5">
-                🔔 Enable System Alerts
-            </button>
-
             <div class="flex flex-col">
                 <label for="timeSelect" class="text-[10px] uppercase font-bold text-gray-400 mb-1">Forecast Range (End Time)</label>
                 <select id="timeSelect" class="bg-[#222a35] border border-gray-600 text-sm rounded px-3 py-1.5 text-white focus:outline-none focus:border-cyan-400 min-w-[200px]">
@@ -100,9 +100,8 @@
     <script>
         let map;
         let csvData = [];
-        let gridLayerGroup = L.layerGroup(); // Layer for blocky square cells and labels
+        let gridLayerGroup = L.layerGroup(); 
         let radarRingsGroup = L.layerGroup();
-        let lastNotifiedTime = ""; 
 
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
@@ -128,37 +127,6 @@
                       Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
                       Math.sin(dLon/2) * Math.sin(dLon/2);
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        }
-
-        function initNotifications() {
-            if (!("Notification" in window)) return;
-            
-            const btn = document.getElementById('notifyAuthBtn');
-            if (Notification.permission === "default") {
-                btn.classList.remove('hidden');
-                btn.addEventListener('click', () => {
-                    Notification.requestPermission().then(permission => {
-                        if (permission === "granted") btn.classList.add('hidden');
-                    });
-                });
-            }
-        }
-
-        function triggerSystemPopNotification(intensity, timeString) {
-            if (!("Notification" in window) || Notification.permission !== "granted") return;
-            
-            let hh = timeString.substring(8, 10);
-            let mm = timeString.substring(10, 12);
-            let formattedTime = `${hh}:${mm}`;
-
-            if (lastNotifiedTime === timeString) return;
-            lastNotifiedTime = timeString;
-
-            new Notification("⚠️ MACAU HEAVY RAIN ALERT", {
-                body: `Severe core of ${Math.round(intensity)} mm/h detected inside 8km boundary threshold. Forecast Target: ${formattedTime}`,
-                icon: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
-                tag: "macau-rain-alert"
-            });
         }
 
         function initMap() {
@@ -270,8 +238,6 @@
             document.getElementById('statusBadge').className = "text-green-400 font-medium";
             document.getElementById('lastUpdatedStr').innerText = "Last fetched: " + new Date().toLocaleTimeString();
 
-            checkAllTimelinesForThreats(uniqueTimes);
-
             if (uniqueTimes.includes(currentSelection)) {
                 timeSelect.value = currentSelection;
                 renderFrame(currentSelection);
@@ -280,17 +246,23 @@
             }
         }
 
-        function checkAllTimelinesForThreats(timelines) {
-            for (let t of timelines) {
-                const framePoints = csvData.filter(d => d.end_time === t);
-                for (let pt of framePoints) {
-                    if (pt.rain >= 1.0) {
-                        if (getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON) <= 8.0) {
-                            triggerSystemPopNotification(pt.rain, t);
-                            return; 
-                        }
-                    }
-                }
+        function updateHeaderThreatIndicator(targetTime, maxRainInRadius) {
+            const threatBadge = document.getElementById('headerThreatBadge');
+            threatBadge.classList.remove('hidden');
+
+            // Format timestamp for easy scannability (e.g., 21:30)
+            let hh = targetTime.substring(8, 10);
+            let mm = targetTime.substring(10, 12);
+            let formattedTime = `${hh}:${mm}`;
+
+            if (maxRainInRadius >= 1.0) {
+                // Rule: >= 10mm found in 8km -> Blinking Light Red Container Box
+                threatBadge.className = "text-red-200 bg-red-950/60 border-red-500 px-3 py-1.5 rounded border text-xs font-bold animate-pulse";
+                threatBadge.innerHTML = `⚠️ THREAT ACTIVE (${formattedTime}): ${maxRainInRadius.toFixed(1)} mm/h inside 8km`;
+            } else {
+                // Safe Rule -> Steady Green Container Box
+                threatBadge.className = "text-green-300 bg-green-950/30 border-green-700 px-3 py-1.5 rounded border text-xs font-bold";
+                threatBadge.innerHTML = `✓ CLEAR (${formattedTime})`;
             }
         }
 
@@ -310,7 +282,7 @@
                 const color = getRainColor(pt.rain);
                 if(color === 'transparent') return;
 
-                // 1. Draw Grid Rectangle Block Box (Restored)
+                // 1. Draw Grid Rectangle Block Box
                 const gridCell = L.rectangle([
                     [pt.lat - 0.01, pt.lon - 0.01],
                     [pt.lat + 0.01, pt.lon + 0.01]
@@ -339,7 +311,7 @@
                     }).addTo(gridLayerGroup);
                 }
 
-                // 3. Proximity check rules
+                // 3. Proximity validation math rules
                 const distToMacau = getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON);
                 if (distToMacau <= 8.0 && pt.rain > macauMaxRain) {
                     macauMaxRain = pt.rain;
@@ -349,7 +321,10 @@
                 }
             });
 
-            // 4. Update Sidebar Notification Boxes
+            // Update the top header blinking indicator box for this section of time
+            updateHeaderThreatIndicator(targetTime, macauMaxRain);
+
+            // 4. Update Sidebar Notification Boxes (Kept intact for dual tracking)
             if (macauMaxRain >= 20.0) {
                 alertBox.className = "p-3 rounded border border-red-500 bg-red-950/40 animate-pulse";
                 let formattedTime = targetTime.substring(8,10) + ":" + targetTime.substring(10,12);
@@ -390,7 +365,6 @@
 
         window.onload = function() {
             initMap();
-            initNotifications();
             loadData();
             
             // Background automation loop (Every 5 minutes)
