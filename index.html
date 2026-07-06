@@ -89,7 +89,8 @@
         const MACAU_LON = 113.5685;
         
         // HKO API Endpoint through an open CORS Proxy to ensure it loads flawlessly on GitHub Pages
-        const csvUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent("https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv");
+        // Replace your old csvUrl with this:
+        const csvUrl = "https://corsproxy.io/?" + encodeURIComponent("https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv");
 
         // HKO Color Palette mapping
         function getRainColor(val) {
