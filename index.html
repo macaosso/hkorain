@@ -115,7 +115,11 @@
 
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
-        const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
+        // Old version pointing to slow static file:
+// const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
+
+// New version pointing directly to the source via proxy:
+        const csvUrl = "https://corsproxy.io/?" + encodeURIComponent("https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv");
         const smgProxyUrl = "https://corsproxy.io/?";
 
         function getRainColor(val) {
