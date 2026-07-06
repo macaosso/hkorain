@@ -124,8 +124,6 @@
 
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
-        
-        const proxyUrl = "https://corsproxy.io/?";
 
         const TARGET_MACAU_STATIONS = {
             "紀念孫中山市政公園": { code: "DP", lat: 22.215322, lon: 113.543490 },
@@ -250,13 +248,12 @@
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
 
-            // 1. Fetch HKO Data via explicit standard text fetch instead of implicit download parameter
-            const rawHkoUrl = `https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv?t=${new Date().getTime()}`;
-            const liveUrl = `${proxyUrl}${encodeURIComponent(rawHkoUrl)}`;
+            // Fix 1: HKO API supports CORS out-of-the-box. Fetch directly from origin without proxy wrapper.
+            const liveHkoUrl = `https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv?t=${new Date().getTime()}`;
 
-            fetch(liveUrl)
+            fetch(liveHkoUrl)
                 .then(res => {
-                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                    if (!res.ok) throw new Error(`HKO HTTP error! status: ${res.status}`);
                     return res.text();
                 })
                 .then(csvText => {
@@ -265,28 +262,26 @@
                         skipEmptyLines: true,
                         complete: function(results) {
                             processCSVData(results.data);
-                        },
-                        error: function(err) {
-                            throw new Error(err);
                         }
                     });
                 })
                 .catch(err => {
-                    console.error("Data Sync Pipeline Error:", err);
+                    console.error("HKO Sync Pipeline Error:", err);
                     document.getElementById('statusBadge').innerText = "Sync Failure";
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
                 });
 
-            // 2. Fetch Macau SMG XML Data via Proxy
+            // Fix 2: Switch Macau SMG to a clean JSONP string wrapper fallback to mask browser headers completely
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
-            const finalSmgUrl = `${proxyUrl}${encodeURIComponent(targetSmgUrl)}`;
+            const fallbackSmgUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetSmgUrl)}`;
             
-            fetch(finalSmgUrl)
+            fetch(fallbackSmgUrl)
                 .then(res => {
-                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                    return res.text();
+                    if (!res.ok) throw new Error(`SMG Proxy error! status: ${res.status}`);
+                    return res.json();
                 })
-                .then(xmlStr => {
+                .then(jsonWrapper => {
+                    const xmlStr = jsonWrapper.contents;
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlStr, "text/xml");
                     
@@ -537,7 +532,7 @@
         window.onload = function() {
             initMap();
             loadData();
-            setInterval(loadData, 1 * 60 * 1000);
+            setInterval(loadData, 5 * 60 * 1000);
         };
     </script>
 </body>
