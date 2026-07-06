@@ -43,7 +43,7 @@
         <div class="flex flex-wrap items-center gap-3">
             <div class="flex flex-col">
                 <label for="timeSelect" class="text-[10px] uppercase font-bold text-gray-400 mb-1">Forecast Range (End Time)</label>
-                <select id="timeSelect" class="bg-[#222a35] border border-gray-600 text-sm rounded px-3 py-1.5 text-white focus:outline-none focus:border-cyan-400 min-w-[200px]">
+                <select id="timeSelect" class="bg-[#222a35] border border-gray-600 text-sm rounded px-3 py-1.5 text-white focus:outline-none focus:border-cyan-400 min-w-[240px]">
                     <option value="">Loading times...</option>
                 </select>
             </div>
@@ -226,11 +226,32 @@
             const currentSelection = timeSelect.value;
             timeSelect.innerHTML = '';
 
+            // Map and calculate threats for ALL time frames simultaneously
             uniqueTimes.forEach(tStr => {
                 let formattedTime = tStr.substring(0,4) + "-" + tStr.substring(4,6) + "-" + tStr.substring(6,8) + " " + tStr.substring(8,10) + ":" + tStr.substring(10,12);
+                
+                // Scan points inside this specific time frame for threats inside the 8km radius
+                const framePoints = csvData.filter(d => d.end_time === tStr);
+                let frameMaxMacauRain = 0;
+                framePoints.forEach(pt => {
+                    const dist = getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON);
+                    if (dist <= 8.0 && pt.rain > frameMaxMacauRain) {
+                        frameMaxMacauRain = pt.rain;
+                    }
+                });
+
                 let opt = document.createElement('option');
                 opt.value = tStr;
-                opt.innerText = formattedTime;
+                
+                // Rule modification: Add a warning tag directly inside the select box options if rain >= 10
+                if (frameMaxMacauRain >= 10.0) {
+                    opt.innerText = `⚠️ [${Math.round(frameMaxMacauRain)} mm/h] ${formattedTime}`;
+                    opt.style.color = "#f87171"; // Tint text light red inside native browser dropdown container
+                } else {
+                    opt.innerText = `✓ ${formattedTime}`;
+                    opt.style.color = "#4ade80";
+                }
+                
                 timeSelect.appendChild(opt);
             });
 
@@ -250,17 +271,14 @@
             const threatBadge = document.getElementById('headerThreatBadge');
             threatBadge.classList.remove('hidden');
 
-            // Format timestamp for easy scannability (e.g., 21:30)
             let hh = targetTime.substring(8, 10);
             let mm = targetTime.substring(10, 12);
             let formattedTime = `${hh}:${mm}`;
 
-            if (maxRainInRadius >= 1.0) {
-                // Rule: >= 10mm found in 8km -> Blinking Light Red Container Box
+            if (maxRainInRadius >= 10.0) {
                 threatBadge.className = "text-red-200 bg-red-950/60 border-red-500 px-3 py-1.5 rounded border text-xs font-bold animate-pulse";
                 threatBadge.innerHTML = `⚠️ THREAT ACTIVE (${formattedTime}): ${maxRainInRadius.toFixed(1)} mm/h inside 8km`;
             } else {
-                // Safe Rule -> Steady Green Container Box
                 threatBadge.className = "text-green-300 bg-green-950/30 border-green-700 px-3 py-1.5 rounded border text-xs font-bold";
                 threatBadge.innerHTML = `✓ CLEAR (${formattedTime})`;
             }
@@ -321,10 +339,9 @@
                 }
             });
 
-            // Update the top header blinking indicator box for this section of time
             updateHeaderThreatIndicator(targetTime, macauMaxRain);
 
-            // 4. Update Sidebar Notification Boxes (Kept intact for dual tracking)
+            // 4. Update Sidebar Notification Boxes
             if (macauMaxRain >= 20.0) {
                 alertBox.className = "p-3 rounded border border-red-500 bg-red-950/40 animate-pulse";
                 let formattedTime = targetTime.substring(8,10) + ":" + targetTime.substring(10,12);
