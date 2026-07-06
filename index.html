@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HKO Rainfall Map</title>
+    <style>
+        body {background:#111822;color:#fff;text-align:center;padding:1rem;margin:0}
+        #rainMap {max-width:96%;max-height:88vh;border:2px solid #555;border-radius:6px;margin-top:1rem}
+        .time-label {font-size:17px;margin:10px 0}
+        .loading {font-size:22px;color:#8cf;margin-top:120px}
+    </style>
+</head>
+<body>
+    <h1>HKO 网格雨量临近预报图</h1>
+    <div class="time-label">有效时间：<span id="timeText">加载中</span></div>
+    <div class="loading" id="loadingTip">正在渲染雨量地图...</div>
+    <img id="rainMap" style="display:none;">
+
+    <script>
+        // Replace with your deployed backend domain
+        const API_ENDPOINT = "https://your-backend-domain.com/rainmap";
+        const REFRESH_RATE = 180000; // refresh every 3 minutes
+
+        async function loadRainfallMap() {
+            try {
+                const res = await fetch(API_ENDPOINT);
+                const data = await res.json();
+                const mapImg = document.getElementById("rainMap");
+                // Render base64 image directly inside browser (no PNG file storage)
+                mapImg.src = `data:image/png;base64,${data.image}`;
+                mapImg.style.display = "block";
+                document.getElementById("loadingTip").style.display = "none";
+                document.getElementById("timeText").innerText = data.valid_time;
+            } catch (err) {
+                document.getElementById("loadingTip").innerText = "地图加载失败，请检查后端服务";
+                console.error(err);
+            }
+        }
+        loadRainfallMap();
+        setInterval(loadRainfallMap, REFRESH_RATE);
+    </script>
+</body>
+</html>
