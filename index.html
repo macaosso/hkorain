@@ -204,10 +204,11 @@
         function loadData() {
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
-
-            const liveUrl = `${csvUrl}?t=${new Date().getTime()}`;
-
-            Papa.parse(liveUrl, {
+        
+            // Force PapaParse to bypass browser cache and grab your fresh GitHub page push
+            const localCsvWithCacheBuster = `./Gridded_rainfall_nowcast_tc.csv?v=${new Date().getTime()}`;
+        
+            Papa.parse(localCsvWithCacheBuster, {
                 download: true,
                 header: true,
                 skipEmptyLines: true,
