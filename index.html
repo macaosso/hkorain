@@ -1,44 +1,279 @@
 <!DOCTYPE html>
-<html lang="zh-HK">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HKO Rainfall Map</title>
+    <title>HKO Nowcast Rainfall Dashboard</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
-        body {background:#111822;color:#fff;text-align:center;padding:1rem;margin:0}
-        #rainMap {max-width:96%;max-height:88vh;border:2px solid #555;border-radius:6px;margin-top:1rem}
-        .time-label {font-size:17px;margin:10px 0}
-        .loading {font-size:22px;color:#8cf;margin-top:120px}
+        /* Custom dark styling for Leaflet elements */
+        .leaflet-container { background: #222a35 !important; }
+        .custom-radar-label {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 10px;
+            font-weight: bold;
+        }
     </style>
 </head>
-<body>
-    <h1>HKO 网格雨量临近预报图</h1>
-    <div class="time-label">有效时间：<span id="timeText">加载中</span></div>
-    <div class="loading" id="loadingTip">正在渲染雨量地图...</div>
-    <img id="rainMap" style="display:none;">
+<body class="bg-[#1a1f26] text-gray-100 font-sans h-screen flex flex-col overflow-hidden">
 
+    <header class="bg-[#2d363f] border-b border-gray-700 p-4 flex flex-col sm:flex-row justify-between items-center gap-4 z-10 shadow-md">
+        <div>
+            <h1 class="text-xl font-bold tracking-wide text-white">HKO Nowcast Gridded Rainfall</h1>
+            <p class="text-xs text-gray-400 mt-1">Interactive GIS Rainfall Dashboard</p>
+        </div>
+        
+        <div class="flex flex-wrap items-center gap-3">
+            <div class="flex flex-col">
+                <label for="timeSelect" class="text-[10px] uppercase font-bold text-gray-400 mb-1">Forecast Range (End Time)</label>
+                <select id="timeSelect" class="bg-[#222a35] border border-gray-600 text-sm rounded px-3 py-1.5 text-white focus:outline-none focus:border-cyan-400 min-w-[200px]">
+                    <option value="">Loading times...</option>
+                </select>
+            </div>
+
+            <button id="refreshBtn" class="bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold px-4 py-2 rounded shadow transition-all flex items-center gap-2 mt-4 sm:mt-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.253 8H18"></path></svg>
+                Refresh Data
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+        
+        <section class="w-full md:w-80 bg-[#2d363f] border-r border-gray-700 p-4 flex flex-col gap-4 overflow-y-auto z-10">
+            <div class="bg-[#222a35] p-3 rounded border border-gray-700">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">System Status</h3>
+                <div class="text-sm flex justify-between"><span class="text-gray-400">Data Status:</span> <span id="statusBadge" class="text-yellow-400 font-medium">Initializing...</span></div>
+                <div class="text-xs text-gray-500 mt-2" id="lastUpdatedStr"></div>
+            </div>
+
+            <div class="bg-[#222a35] p-3 rounded border border-gray-700">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Rainfall Scale (mm/h)</h3>
+                <div class="grid grid-cols-1 gap-1.5 text-xs font-mono">
+                    <div class="flex items-center gap-3"><span class="w-4 h-4 rounded" style="background:#15438e"></span> 0.1 - 1.0 mm</div>
+                    <div class="flex items-center gap-3"><span class="w-4 h-4 rounded" style="background:#2fdbeb"></span> 1.0 - 5.0 mm</div>
+                    <div class="flex items-center gap-3"><span class="w-4 h-4 rounded" style="background:#0F9C5D"></span> 5.0 - 10.0 mm</div>
+                    <div class="flex items-center gap-3"><span class="w-4 h-4 rounded" style="background:#52ee27"></span> 10.0 - 20.0 mm</div>
+                    <div class="flex items-center gap-3"><span class="w-4 h-4 rounded" style="background:#ffdd00"></span> 20.0 - 50.0 mm</div>
+                    <div class="flex items-center gap-3"><span class="w-4 h-4 rounded" style="background:#ff0000"></span> 50.0 - 80.0 mm</div>
+                    <div class="flex items-center gap-3"><span class="w-4 h-4 rounded" style="background:#4a4747"></span> 80.0 - 100.0 mm</div>
+                    <div class="flex items-center gap-3"><span class="w-4 h-4 rounded" style="background:#6C074E"></span> &ge; 100.0 mm</div>
+                </div>
+            </div>
+
+            <div class="bg-[#222a35] p-3 rounded border border-gray-700 flex-1">
+                <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Detected Heavy Cores</h3>
+                <div id="peakContainer" class="text-xs text-gray-400 max-h-[200px] overflow-y-auto space-y-1">
+                    No heavy rain cells active.
+                </div>
+            </div>
+        </section>
+
+        <section id="map" class="flex-1 w-full h-full"></section>
+    </main>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // Replace with your deployed backend domain
-        const API_ENDPOINT = "https://your-backend-domain.com/rainmap";
-        const REFRESH_RATE = 180000; // refresh every 3 minutes
+        // Global variables
+        let map;
+        let csvData = [];
+        let gridLayerGroup = L.layerGroup();
+        let radarRingsGroup = L.layerGroup();
+        
+        const MACAU_LAT = 22.1595;
+        const MACAU_LON = 113.5685;
+        
+        // HKO API Endpoint through an open CORS Proxy to ensure it loads flawlessly on GitHub Pages
+        const csvUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent("https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv");
 
-        async function loadRainfallMap() {
-            try {
-                const res = await fetch(API_ENDPOINT);
-                const data = await res.json();
-                const mapImg = document.getElementById("rainMap");
-                // Render base64 image directly inside browser (no PNG file storage)
-                mapImg.src = `data:image/png;base64,${data.image}`;
-                mapImg.style.display = "block";
-                document.getElementById("loadingTip").style.display = "none";
-                document.getElementById("timeText").innerText = data.valid_time;
-            } catch (err) {
-                document.getElementById("loadingTip").innerText = "地图加载失败，请检查后端服务";
-                console.error(err);
+        // HKO Color Palette mapping
+        function getRainColor(val) {
+            if (val < 0.1) return 'transparent';
+            if (val < 1)   return "#15438e";
+            if (val < 5)   return "#2fdbeb";
+            if (val < 10)  return "#0F9C5D";
+            if (val < 20)  return "#52ee27";
+            if (val < 50)  return "#ffdd00";
+            if (val < 80)  return "#ff0000";
+            if (val < 100) return "#4a4747";
+            return "#6C074E";
+        }
+
+        // Initialize GIS Leaflet Map
+        function initMap() {
+            map = L.map('map', {
+                center: [22.1595, 113.80],
+                zoom: 9.5,
+                zoomControl: true
+            });
+
+            // CartoDB Dark Matter base map tiles
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap &copy; CartoDB',
+                subdomains: 'abcd',
+                maxZoom: 19
+            }).addTo(map);
+
+            gridLayerGroup.addTo(map);
+            radarRingsGroup.addTo(map);
+
+            drawRadarRings();
+        }
+
+        // Build radar range grids relative to Macau center point
+        function drawRadarRings() {
+            radarRingsGroup.clearLayers();
+            const distances = [10000, 25000, 50000, 100000]; // in meters
+            const labels = ['10 km', '25 km', '50 km', '100 km'];
+
+            // Center Marker
+            L.circleMarker([MACAU_LAT, MACAU_LON], {
+                radius: 5, color: '#ffffff', fillColor: '#ffffff', fillOpacity: 1
+            }).addTo(radarRingsGroup);
+
+            distances.forEach((dist, idx) => {
+                L.circle([MACAU_LAT, MACAU_LON], {
+                    radius: dist,
+                    color: '#949494',
+                    weight: 0.8,
+                    dashArray: '4, 4',
+                    fill: false,
+                    opacity: 0.5
+                }).addTo(radarRingsGroup);
+
+                // Add label text south of circle
+                // Simple approx conversion offset for label placement
+                const offsetLat = dist / 111320; 
+                L.marker([MACAU_LAT - offsetLat, MACAU_LON], {
+                    icon: L.divIcon({
+                        className: 'custom-radar-label',
+                        html: labels[idx],
+                        iconAnchor: [15, 0]
+                    })
+                }).addTo(radarRingsGroup);
+            });
+        }
+
+        // Fetch and parse real time data
+        function loadData() {
+            document.getElementById('statusBadge').innerText = "Fetching...";
+            document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
+
+            Papa.parse(csvUrl, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    processCSVData(results.data);
+                },
+                error: function(err) {
+                    console.error("Error reading CSV:", err);
+                    document.getElementById('statusBadge').innerText = "Error Loading";
+                    document.getElementById('statusBadge').className = "text-red-500 font-medium";
+                }
+            });
+        }
+
+        function processCSVData(data) {
+            if(!data || data.length === 0) return;
+            
+            csvData = data.map(row => {
+                const keys = Object.keys(row);
+                const end_time = row[keys[1]] ? row[keys[1]].trim() : '';
+                const lat = parseFloat(row[keys[2]]);
+                const lon = parseFloat(row[keys[3]]);
+                const rain = parseFloat(row[keys[4]]);
+                return { end_time, lat, lon, rain };
+            }).filter(item => !isNaN(item.lat) && !isNaN(item.lon));
+
+            // Populate Dropdown Options with unique target timestamps
+            const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].sort();
+            const timeSelect = document.getElementById('timeSelect');
+            timeSelect.innerHTML = '';
+            
+            uniqueTimes.forEach(tStr => {
+                if(!tStr) return;
+                // Parse format e.g., 202607070506 -> 05:06
+                let formattedTime = tStr.substring(0,4) + "-" + tStr.substring(4,6) + "-" + tStr.substring(6,8) + " " + tStr.substring(8,10) + ":" + tStr.substring(10,12);
+                let opt = document.createElement('option');
+                opt.value = tStr;
+                opt.innerText = formattedTime;
+                timeSelect.appendChild(opt);
+            });
+
+            document.getElementById('statusBadge').innerText = "Live";
+            document.getElementById('statusBadge').className = "text-green-400 font-medium";
+            document.getElementById('lastUpdatedStr').innerText = "Last checked: " + new Date().toLocaleTimeString();
+
+            // Render default/first timestamp
+            if(uniqueTimes.length > 0) {
+                renderFrame(uniqueTimes[0]);
             }
         }
-        loadRainfallMap();
-        setInterval(loadRainfallMap, REFRESH_RATE);
+
+        // Render chosen nowcast step onto map grid
+        function renderFrame(targetTime) {
+            gridLayerGroup.clearLayers();
+            const filtered = csvData.filter(d => d.end_time === targetTime && d.rain > 0);
+            const peakContainer = document.getElementById('peakContainer');
+            
+            let heavyCores = [];
+
+            filtered.forEach(pt => {
+                const color = getRainColor(pt.rain);
+                if(color === 'transparent') return;
+
+                // Create individual grid rectangle block for resolution visibility (approx 0.02 spacing grid elements)
+                const gridCell = L.rectangle([
+                    [pt.lat - 0.01, pt.lon - 0.01],
+                    [pt.lat + 0.01, pt.lon + 0.01]
+                ], {
+                    color: color,
+                    weight: 0,
+                    fillColor: color,
+                    fillOpacity: 0.55
+                });
+
+                gridCell.bindPopup(`<b>Rainfall Rate:</b> ${pt.rain.toFixed(2)} mm/h<br><b>Coords:</b> ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)}`);
+                gridCell.addTo(gridLayerGroup);
+
+                // Peak tracking threshold (>= 10mm/h from code logic configuration)
+                if (pt.rain >= 10.0) {
+                    heavyCores.push(pt);
+                }
+            });
+
+            // Handle Heavy core metrics printing inside Sidebar
+            heavyCores.sort((a,b) => b.rain - a.rain);
+            if (heavyCores.length > 0) {
+                peakContainer.innerHTML = heavyCores.slice(0, 8).map(pt => 
+                    `<div class="flex justify-between items-center bg-[#1a1f26] p-1.5 rounded mb-1 border-l-2" style="border-color:${getRainColor(pt.rain)}">
+                        <span>Lat: ${pt.lat.toFixed(2)}, Lon: ${pt.lon.toFixed(2)}</span>
+                        <span class="font-bold font-mono" style="color:${getRainColor(pt.rain)}">${Math.round(pt.rain)} mm/h</span>
+                    </div>`
+                ).join('');
+            } else {
+                peakContainer.innerHTML = '<p class="text-gray-500 italic text-center py-2">No heavy rain cores detected.</p>';
+            }
+        }
+
+        // Event hooks
+        document.getElementById('timeSelect').addEventListener('change', function(e) {
+            renderFrame(e.target.value);
+        });
+
+        document.getElementById('refreshBtn').addEventListener('click', loadData);
+
+        // Run dashboard on window startup
+        window.onload = function() {
+            initMap();
+            loadData();
+        };
     </script>
 </body>
 </html>
