@@ -54,7 +54,6 @@
     </header>
 
     <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        <!-- Sidebar Controls -->
         <section class="w-full md:w-80 bg-[#2d363f] border-r border-gray-700 p-4 flex flex-col gap-4 overflow-y-auto z-10">
             <div class="bg-[#222a35] p-3 rounded border border-gray-700">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">System Status</h3>
@@ -63,7 +62,6 @@
                 <div class="text-[10px] text-cyan-400 font-medium mt-1 animate-pulse">🔄 Auto-refreshing loop active (5m)</div>
             </div>
 
-            <!-- Macau Live Rain Box -->
             <div class="bg-[#222a35] p-3 rounded border border-cyan-700">
                 <div class="flex flex-col gap-2 mb-3">
                     <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center justify-between">
@@ -119,7 +117,6 @@
             </div>
         </section>
 
-        <!-- GIS Map Section -->
         <section id="map" class="flex-1 w-full h-full"></section>
     </main>
 
@@ -135,8 +132,9 @@
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
 
-        // Modern functional endpoint replacement proxy
-        const globalProxy = "https://corsproxy.io/?url=";
+        // Dedicated proxy servers
+        const smgProxy = "https://corsproxy.io/?url=";
+        const hkoProxy = "https://api.allorigins.win/get?url=";
 
         const TARGET_MACAU_STATIONS = {
             "紀念孫中山市政公園": { code: "DP", lat: 22.215322, lon: 113.543490 },
@@ -259,16 +257,18 @@
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
 
             const targetHkoUrl = `https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv?t=${new Date().getTime()}`;
-            
-            // Fallback alternative pipeline for HKO using the ultra-resilient Weserv caching gateway
-            const proxiedHkoUrl = `https://images.weserv.nl/?url=${encodeURIComponent(targetHkoUrl)}&default=${encodeURIComponent(targetHkoUrl)}&n=-1`;
+            const proxiedHkoUrl = `${hkoProxy}${encodeURIComponent(targetHkoUrl)}`;
 
+            // Using AllOrigins standard text-wrapper to enforce regular user-agents and bypass HKO TCP close rule
             fetch(proxiedHkoUrl)
                 .then(res => {
                     if (!res.ok) throw new Error(`HKO HTTP proxy error! status: ${res.status}`);
-                    return res.text();
+                    return res.json();
                 })
-                .then(csvText => {
+                .then(jsonWrapper => {
+                    const csvText = jsonWrapper.contents;
+                    if(!csvText) throw new Error("Empty content returned from HKO channel wrapper.");
+                    
                     Papa.parse(csvText, {
                         header: true,
                         skipEmptyLines: true,
@@ -284,7 +284,7 @@
                 });
 
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
-            const proxiedSmgUrl = `${globalProxy}${encodeURIComponent(targetSmgUrl)}`;
+            const proxiedSmgUrl = `${smgProxy}${encodeURIComponent(targetSmgUrl)}`;
             
             fetch(proxiedSmgUrl)
                 .then(res => {
