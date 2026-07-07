@@ -256,32 +256,22 @@
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
 
-            const targetHkoUrl = `https://data.weather.gov.hk/weatherAPI/hko_data/F3/Gridded_rainfall_nowcast_tc.csv?t=${new Date().getTime()}`;
-            const proxiedHkoUrl = `${hkoProxy}${encodeURIComponent(targetHkoUrl)}`;
+            const liveUrl = `${csvUrl}?t=${new Date().getTime()}`;
 
-            // Using AllOrigins standard text-wrapper to enforce regular user-agents and bypass HKO TCP close rule
-            fetch(proxiedHkoUrl)
-                .then(res => {
-                    if (!res.ok) throw new Error(`HKO HTTP proxy error! status: ${res.status}`);
-                    return res.json();
-                })
-                .then(jsonWrapper => {
-                    const csvText = jsonWrapper.contents;
-                    if(!csvText) throw new Error("Empty content returned from HKO channel wrapper.");
-                    
-                    Papa.parse(csvText, {
-                        header: true,
-                        skipEmptyLines: true,
-                        complete: function(results) {
-                            processCSVData(results.data);
-                        }
-                    });
-                })
-                .catch(err => {
-                    console.error("HKO Sync Pipeline Error:", err);
+            Papa.parse(liveUrl, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    processCSVData(results.data);
+                },
+                error: function(err) {
+                    console.error("Data Sync Pipeline Error:", err);
                     document.getElementById('statusBadge').innerText = "Sync Failure";
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
-                });
+                }
+            });
+        
 
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
             const proxiedSmgUrl = `${smgProxy}${encodeURIComponent(targetSmgUrl)}`;
