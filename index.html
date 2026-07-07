@@ -122,6 +122,10 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
+        // ========== 修复：补充缺失的csvUrl变量 ==========
+        // 替换为你的HKO Nowcast CSV真实地址
+        const csvUrl = "https://YOUR_HKO_CSV_URL_HERE/nowcast_rain.csv";
+
         let map;
         let csvData = [];
         let globalSmgStationsCache = [];
@@ -185,12 +189,12 @@
 
         function getRainColor(val) {
             if (val < 0.1) return 'transparent';
-            if (val < 1)   return "#15438e";
-            if (val < 5)   return "#2fdbeb";
-            if (val < 10)  return "#0F9C5D";
-            if (val < 20)  return "#52ee27";
-            if (val < 50)  return "#ffdd00";
-            if (val < 80)  return "#ff0000";
+            if (val < 1)  return "#15438e";
+            if (val < 5)  return "#2fdbeb";
+            if (val < 10) return "#0F9C5D";
+            if (val < 20) return "#52ee27";
+            if (val < 50) return "#ffdd00";
+            if (val < 80) return "#ff0000";
             if (val < 100) return "#4a4747";
             return "#6C074E";
         }
@@ -200,8 +204,8 @@
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
             const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon/2) * Math.sin(dLon/2);
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
             return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
@@ -273,6 +277,7 @@
             });
         }
 
+        // 只保留一份processCSVData，删除重复函数定义
         function processCSVData(data) {
             if(!data || data.length === 0) return;
 
@@ -294,9 +299,26 @@
 
             uniqueTimes.forEach(tStr => {
                 let formattedTime = tStr.substring(0,4) + "-" + tStr.substring(4,6) + "-" + tStr.substring(6,8) + " " + tStr.substring(8,10) + ":" + tStr.substring(10,12);
+                
+                const framePoints = csvData.filter(d => d.end_time === tStr);
+                let frameMaxMacauRain = 0;
+                framePoints.forEach(pt => {
+                    const dist = getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON);
+                    if (dist <= 8.0 && pt.rain > frameMaxMacauRain) {
+                        frameMaxMacauRain = pt.rain;
+                    }
+                });
+
                 let opt = document.createElement('option');
                 opt.value = tStr;
-                opt.innerText = formattedTime;
+                
+                if (frameMaxMacauRain >= 10.0) {
+                    opt.innerText = `⚠️ [${Math.round(frameMaxMacauRain)} mm/h] ${formattedTime}`;
+                    opt.style.color = "#f87171";
+                } else {
+                    opt.innerText = `✓ ${formattedTime}`;
+                    opt.style.color = "#4ade80";
+                }
                 timeSelect.appendChild(opt);
             });
 
@@ -310,7 +332,6 @@
             } else if(uniqueTimes.length > 0) {
                 renderFrame(uniqueTimes[0]);
             }
-        
 
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
             const proxiedSmgUrl = `${smgProxy}${encodeURIComponent(targetSmgUrl)}`;
@@ -419,62 +440,6 @@
                 ascBtn.className = "col-span-2 bg-[#1a1f26] hover:bg-gray-700 border border-gray-600 text-[10px] text-gray-400 font-bold rounded h-7 flex items-center justify-center transition-all";
             }
             renderMacauStations();
-        }
-
-        function processCSVData(data) {
-            if(!data || data.length === 0) return;
-
-            csvData = data.map(row => {
-                const keys = Object.keys(row);
-                return {
-                    end_time: row[keys[1]] ? row[keys[1]].trim() : '',
-                    lat: parseFloat(row[keys[2]]),
-                    lon: parseFloat(row[keys[3]]),
-                    rain: parseFloat(row[keys[4]])
-                };
-            }).filter(item => !isNaN(item.lat) && !isNaN(item.lon));
-
-            const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].filter(t => t).sort();
-            const timeSelect = document.getElementById('timeSelect');
-            
-            const currentSelection = timeSelect.value;
-            timeSelect.innerHTML = '';
-
-            uniqueTimes.forEach(tStr => {
-                let formattedTime = tStr.substring(0,4) + "-" + tStr.substring(4,6) + "-" + tStr.substring(6,8) + " " + tStr.substring(8,10) + ":" + tStr.substring(10,12);
-                
-                const framePoints = csvData.filter(d => d.end_time === tStr);
-                let frameMaxMacauRain = 0;
-                framePoints.forEach(pt => {
-                    const dist = getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON);
-                    if (dist <= 8.0 && pt.rain > frameMaxMacauRain) {
-                        frameMaxMacauRain = pt.rain;
-                    }
-                });
-
-                let opt = document.createElement('option');
-                opt.value = tStr;
-                
-                if (frameMaxMacauRain >= 10.0) {
-                    opt.innerText = `⚠️ [${Math.round(frameMaxMacauRain)} mm/h] ${formattedTime}`;
-                    opt.style.color = "#f87171";
-                } else {
-                    opt.innerText = `✓ ${formattedTime}`;
-                    opt.style.color = "#4ade80";
-                }
-                timeSelect.appendChild(opt);
-            });
-
-            document.getElementById('statusBadge').innerText = "Active";
-            document.getElementById('statusBadge').className = "text-green-400 font-medium";
-            document.getElementById('lastUpdatedStr').innerText = "Last fetched: " + new Date().toLocaleTimeString();
-
-            if (uniqueTimes.includes(currentSelection)) {
-                timeSelect.value = currentSelection;
-                renderFrame(currentSelection);
-            } else if(uniqueTimes.length > 0) {
-                renderFrame(uniqueTimes[0]);
-            }
         }
 
         function updateHeaderThreatIndicator(targetTime, maxRainInRadius) {
