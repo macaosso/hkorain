@@ -122,23 +122,25 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // ========== 修复：补充缺失的csvUrl变量 ==========
-        // 替换为你的HKO Nowcast CSV真实地址
-        const csvUrl = "https://YOUR_HKO_CSV_URL_HERE/nowcast_rain.csv";
+        // -------------------------- 配置区（必须修改此处）--------------------------
+        // 1. 填入真实HKO Nowcast CSV直链
+        const RAW_HKO_CSV = "https://data.weather.gov.hk/your/actual/rain_nowcast.csv";
+        // 跨域代理
+        const smgProxy = "https://corsproxy.io/?url=";
+        const hkoProxy = "https://api.allorigins.win/get?url=";
+        // 拼接带代理的CSV地址
+        const csvUrl = `${hkoProxy}${encodeURIComponent(RAW_HKO_CSV)}`;
+        // ---------------------------------------------------------------------------
 
         let map;
         let csvData = [];
         let globalSmgStationsCache = [];
-        let currentSortDirection = "desc"; 
-        let gridLayerGroup = L.layerGroup(); 
+        let currentSortDirection = "desc";
+        let gridLayerGroup = L.layerGroup();
         let radarRingsGroup = L.layerGroup();
 
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
-
-        // Dedicated proxy servers
-        const smgProxy = "https://corsproxy.io/?url=";
-        const hkoProxy = "https://api.allorigins.win/get?url=";
 
         const TARGET_MACAU_STATIONS = {
             "紀念孫中山市政公園": { code: "DP", lat: 22.215322, lon: 113.543490 },
@@ -189,8 +191,8 @@
 
         function getRainColor(val) {
             if (val < 0.1) return 'transparent';
-            if (val < 1)  return "#15438e";
-            if (val < 5)  return "#2fdbeb";
+            if (val < 1) return "#15438e";
+            if (val < 5) return "#2fdbeb";
             if (val < 10) return "#0F9C5D";
             if (val < 20) return "#52ee27";
             if (val < 50) return "#ffdd00";
@@ -203,10 +205,10 @@
             const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                    Math.sin(dLon/2) * Math.sin(dLon/2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         }
 
         function initMap() {
@@ -228,12 +230,12 @@
 
         function drawRadarRings() {
             radarRingsGroup.clearLayers();
-            
+
             L.circle([MACAU_LAT, MACAU_LON], {
                 radius: 8000, color: '#2fdbeb', weight: 1.4, dashArray: '2, 5', fill: false, opacity: 0.7
             }).addTo(radarRingsGroup);
 
-            const distances = [10000, 25000, 50000, 100000]; 
+            const distances = [10000, 25000, 50000, 100000];
             const labels = ['10 km', '25 km', '50 km', '100 km'];
 
             L.circleMarker([MACAU_LAT, MACAU_LON], {
@@ -245,7 +247,7 @@
                     radius: dist, color: '#949494', weight: 0.8, dashArray: '4, 4', fill: false, opacity: 0.4
                 }).addTo(radarRingsGroup);
 
-                const offsetLat = dist / 111320; 
+                const offsetLat = dist / 111320;
                 L.marker([MACAU_LAT - offsetLat, MACAU_LON], {
                     icon: L.divIcon({
                         className: 'custom-radar-label',
@@ -260,16 +262,17 @@
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
 
-            const liveUrl = `${csvUrl}?t=${new Date().getTime()}`;
+            const cacheBust = `?t=${new Date().getTime()}`;
+            const liveUrl = `${csvUrl}${encodeURIComponent(cacheBust)}`;
 
             Papa.parse(liveUrl, {
                 download: true,
                 header: true,
                 skipEmptyLines: true,
-                complete: function(results) {
+                complete: function (results) {
                     processCSVData(results.data);
                 },
-                error: function(err) {
+                error: function (err) {
                     console.error("Data Sync Pipeline Error:", err);
                     document.getElementById('statusBadge').innerText = "Sync Failure";
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
@@ -277,9 +280,8 @@
             });
         }
 
-        // 只保留一份processCSVData，删除重复函数定义
         function processCSVData(data) {
-            if(!data || data.length === 0) return;
+            if (!data || data.length === 0) return;
 
             csvData = data.map(row => {
                 const keys = Object.keys(row);
@@ -293,13 +295,13 @@
 
             const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].filter(t => t).sort();
             const timeSelect = document.getElementById('timeSelect');
-            
+
             const currentSelection = timeSelect.value;
             timeSelect.innerHTML = '';
 
             uniqueTimes.forEach(tStr => {
-                let formattedTime = tStr.substring(0,4) + "-" + tStr.substring(4,6) + "-" + tStr.substring(6,8) + " " + tStr.substring(8,10) + ":" + tStr.substring(10,12);
-                
+                let formattedTime = tStr.substring(0, 4) + "-" + tStr.substring(4, 6) + "-" + tStr.substring(6, 8) + " " + tStr.substring(8, 10) + ":" + tStr.substring(10, 12);
+
                 const framePoints = csvData.filter(d => d.end_time === tStr);
                 let frameMaxMacauRain = 0;
                 framePoints.forEach(pt => {
@@ -311,7 +313,7 @@
 
                 let opt = document.createElement('option');
                 opt.value = tStr;
-                
+
                 if (frameMaxMacauRain >= 10.0) {
                     opt.innerText = `⚠️ [${Math.round(frameMaxMacauRain)} mm/h] ${formattedTime}`;
                     opt.style.color = "#f87171";
@@ -329,13 +331,13 @@
             if (uniqueTimes.includes(currentSelection)) {
                 timeSelect.value = currentSelection;
                 renderFrame(currentSelection);
-            } else if(uniqueTimes.length > 0) {
+            } else if (uniqueTimes.length > 0) {
                 renderFrame(uniqueTimes[0]);
             }
 
             const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
             const proxiedSmgUrl = `${smgProxy}${encodeURIComponent(targetSmgUrl)}`;
-            
+
             fetch(proxiedSmgUrl)
                 .then(res => {
                     if (!res.ok) throw new Error(`SMG Proxy error! status: ${res.status}`);
@@ -344,7 +346,7 @@
                 .then(xmlStr => {
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(xmlStr, "text/xml");
-                    
+
                     const pubDateNode = xmlDoc.querySelector("RecordTime");
                     if (pubDateNode) {
                         document.getElementById("smgTime").innerText = pubDateNode.textContent.split(" ")[1];
@@ -356,7 +358,7 @@
                     stations.forEach(stationNode => {
                         const rawName = stationNode.querySelector("stationname")?.textContent || "";
                         const matchedKey = Object.keys(TARGET_MACAU_STATIONS).find(k => rawName.includes(k));
-                        
+
                         if (matchedKey) {
                             const stationMeta = TARGET_MACAU_STATIONS[matchedKey];
                             let r3 = 0.0, r4 = 0.0, r5 = 0.0;
@@ -385,7 +387,7 @@
                 })
                 .catch(err => {
                     console.error("SMG Feed Error:", err);
-                    document.getElementById("macauSmgContainer").innerHTML = 
+                    document.getElementById("macauSmgContainer").innerHTML =
                         `<p class="text-red-400 font-medium italic text-[11px]">API Failure (${err.message})</p>`;
                 });
         }
@@ -461,7 +463,7 @@
 
         function renderFrame(targetTime) {
             gridLayerGroup.clearLayers();
-            
+
             const filtered = csvData.filter(d => d.end_time === targetTime && d.rain > 0);
             const peakContainer = document.getElementById('peakContainer');
             const alertBox = document.getElementById('macauAlertBox');
@@ -472,7 +474,7 @@
 
             filtered.forEach(pt => {
                 const color = getRainColor(pt.rain);
-                if(color === 'transparent') return;
+                if (color === 'transparent') return;
 
                 const gridCell = L.rectangle([
                     [pt.lat - 0.01, pt.lon - 0.01],
@@ -509,7 +511,7 @@
 
             if (macauMaxRain >= 20.0) {
                 alertBox.className = "p-3 rounded border border-red-500 bg-red-950/40 animate-pulse";
-                let formattedTime = targetTime.substring(8,10) + ":" + targetTime.substring(10,12);
+                let formattedTime = targetTime.substring(8, 10) + ":" + targetTime.substring(10, 12);
                 alertContent.innerHTML = `
                     <div class="text-red-400 font-bold flex items-center gap-1.5 mb-1 text-sm">⚠️ CRITICAL IMPACT WARNING</div>
                     <p class="text-gray-200">Heavy core detected within <b>8 km</b> of Macau.</p>
@@ -527,9 +529,9 @@
                 `;
             }
 
-            heavyCores.sort((a,b) => b.rain - a.rain);
+            heavyCores.sort((a, b) => b.rain - a.rain);
             if (heavyCores.length > 0) {
-                peakContainer.innerHTML = heavyCores.slice(0, 8).map(pt => 
+                peakContainer.innerHTML = heavyCores.slice(0, 8).map(pt =>
                     `<div class="flex justify-between items-center bg-[#1a1f26] p-1.5 rounded mb-1 border-l-2" style="border-color:${getRainColor(pt.rain)}">
                         <span>Lat: ${pt.lat.toFixed(2)}, Lon: ${pt.lon.toFixed(2)}</span>
                         <span class="font-bold font-mono" style="color:${getRainColor(pt.rain)}">${Math.round(pt.rain)} mm/h</span>
@@ -540,16 +542,16 @@
             }
         }
 
-        document.getElementById('timeSelect').addEventListener('change', function(e) {
+        document.getElementById('timeSelect').addEventListener('change', function (e) {
             renderFrame(e.target.value);
         });
         document.getElementById('smgTypeSelect').addEventListener('change', renderMacauStations);
         document.getElementById('refreshBtn').addEventListener('click', loadData);
-        
+
         document.getElementById('sortAscBtn').addEventListener('click', () => setSortDirection('asc'));
         document.getElementById('sortDescBtn').addEventListener('click', () => setSortDirection('desc'));
 
-        window.onload = function() {
+        window.onload = function () {
             initMap();
             loadData();
             setInterval(loadData, 5 * 60 * 1000);
