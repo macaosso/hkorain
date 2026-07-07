@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HKO Nowcast & Macau SMG Rainfall Dashboard</title>
+    <title>HKO Nowcast Rainfall Dashboard</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -33,9 +33,10 @@
     <header class="bg-[#2d363f] border-b border-gray-700 p-4 flex flex-col sm:flex-row justify-between items-center gap-4 z-10 shadow-md">
         <div class="flex items-center gap-4 flex-wrap">
             <div>
-                <h1 class="text-xl font-bold tracking-wide text-white">HKO Nowcast & Macau Live Rainfall</h1>
-                <p class="text-xs text-gray-400 mt-1">Interactive GIS Weather & Radar Proximity Dashboard</p>
+                <h1 class="text-xl font-bold tracking-wide text-white">HKO Nowcast Gridded Rainfall</h1>
+                <p class="text-xs text-gray-400 mt-1">Interactive GIS Rainfall Dashboard</p>
             </div>
+            
             <div id="headerThreatBadge" class="hidden text-xs font-bold px-3 py-1.5 rounded border transition-all"></div>
         </div>
 
@@ -46,6 +47,7 @@
                     <option value="">Loading times...</option>
                 </select>
             </div>
+
             <button id="refreshBtn" class="bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold px-4 py-2 rounded shadow transition-all flex items-center gap-2 mt-4 sm:mt-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.253 8H18"></path></svg>
                 Refresh Data
@@ -60,32 +62,6 @@
                 <div class="text-sm flex justify-between"><span class="text-gray-400">Data Status:</span> <span id="statusBadge" class="text-yellow-400 font-medium">Initializing...</span></div>
                 <div class="text-xs text-gray-500 mt-2" id="lastUpdatedStr"></div>
                 <div class="text-[10px] text-cyan-400 font-medium mt-1 animate-pulse">🔄 Auto-refreshing loop active (5m)</div>
-            </div>
-
-            <div class="bg-[#222a35] p-3 rounded border border-cyan-700">
-                <div class="flex flex-col gap-2 mb-3">
-                    <h3 class="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center justify-between">
-                        <span>Macau SMG Live Rain</span>
-                        <span id="smgTime" class="text-[10px] text-gray-500 lowercase">syncing...</span>
-                    </h3>
-                    
-                    <div class="grid grid-cols-12 gap-1 items-center mt-1">
-                        <select id="smgTypeSelect" class="col-span-8 bg-[#1a1f26] border border-gray-600 text-[11px] rounded px-1.5 py-1 text-white focus:outline-none focus:border-cyan-400 h-7">
-                            <option value="4" selected>1-Hour Rolling (一小時)</option>
-                            <option value="3">1-Min Interval (一分鐘)</option>
-                            <option value="5">Daily Accum (日累積)</option>
-                        </select>
-                        <button id="sortAscBtn" class="col-span-2 bg-[#1a1f26] hover:bg-gray-700 border border-gray-600 text-[10px] text-gray-400 font-bold rounded h-7 flex items-center justify-center transition-all" title="Sort Ascending">
-                            ▲
-                        </button>
-                        <button id="sortDescBtn" class="col-span-2 bg-cyan-700 hover:bg-cyan-600 border border-cyan-500 text-[10px] text-white font-bold rounded h-7 flex items-center justify-center transition-all shadow" title="Sort Descending">
-                            ▼
-                        </button>
-                    </div>
-                </div>
-                <div id="macauSmgContainer" class="text-xs text-gray-400 space-y-1 max-h-[320px] overflow-y-auto pr-1">
-                    <p class="text-gray-500 italic py-1">Contacting SMG XML API feed...</p>
-                </div>
             </div>
 
             <div id="macauAlertBox" class="p-3 rounded border border-gray-700 bg-[#222a35]">
@@ -111,7 +87,7 @@
 
             <div class="bg-[#222a35] p-3 rounded border border-gray-700 flex-1">
                 <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Regional Heavy Cores</h3>
-                <div id="peakContainer" class="text-xs text-gray-400 max-h-[150px] overflow-y-auto space-y-1">
+                <div id="peakContainer" class="text-xs text-gray-400 max-h-[200px] overflow-y-auto space-y-1">
                     No heavy rain cells active.
                 </div>
             </div>
@@ -122,79 +98,23 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        // -------------------------- 配置区（必须修改此处）--------------------------
-        // 1. 填入真实HKO Nowcast CSV直链
-        const RAW_HKO_CSV = "https://data.weather.gov.hk/your/actual/rain_nowcast.csv";
-        // 更换兼容Github Pages的跨域代理
-        const smgProxy = "https://corsproxy.io/?url=";
-        const crossProxy = "https://corsproxy.link/";
-        // ---------------------------------------------------------------------------
-
         let map;
         let csvData = [];
-        let globalSmgStationsCache = [];
-        let currentSortDirection = "desc";
-        let gridLayerGroup = L.layerGroup();
+        let gridLayerGroup = L.layerGroup(); 
         let radarRingsGroup = L.layerGroup();
 
         const MACAU_LAT = 22.1595;
         const MACAU_LON = 113.5685;
-
-        const TARGET_MACAU_STATIONS = {
-            "紀念孫中山市政公園": { code: "DP", lat: 22.215322, lon: 113.543490 },
-            "黑沙環": { code: "EM", lat: 22.207129, lon: 113.559971 },
-            "大炮台": { code: "FM", lat: 22.197066, lon: 113.542261 },
-            "外港": { code: "PE", lat: 22.196556, lon: 113.558333 },
-            "媽閣": { code: "MM", lat: 22.185863, lon: 113.530675 },
-            "大潭山": { code: "TG", lat: 22.159102, lon: 113.568947 },
-            "東亞運大馬路": { code: "JA", lat: 22.155396, lon: 113.542412 },
-            "九澳": { code: "KV", lat: 22.134686, lon: 113.580143 },
-            "澳門大學": { code: "UM", lat: 22.131808, lon: 113.546970 },
-            "路環市區": { code: "DC", lat: 22.117091, lon: 113.551041 }
-        };
-
-        function getRain1mColor(valStr) {
-            const v = parseFloat(valStr);
-            if (isNaN(v)) return "#78797a";
-            if (v >= 1.8) return "#6a0c7a";
-            if (v >= 1.4) return "#000000";
-            if (v >= 0.8) return "#921818";
-            if (v >= 0.4) return "#878e14";
-            if (v >= 0.2) return "#227192";
-            return "#636363";
-        }
-
-        function getRain1hColor(valStr) {
-            const v = parseFloat(valStr);
-            if (isNaN(v)) return "#78797a";
-            if (v >= 100.0) return "#6a0c7a";
-            if (v >= 80.0) return "#020000";
-            if (v >= 50.0) return "#921818";
-            if (v >= 20.0) return "#878e14";
-            if (v >= 10.0) return "#149f37";
-            if (v >= 0.1) return "#227192";
-            return "#636363";
-        }
-
-        function getRainTotalColor(valStr) {
-            const v = parseFloat(valStr);
-            if (isNaN(v)) return "#78797a";
-            if (v >= 350.0) return "#000000";
-            if (v >= 200.0) return "#921818";
-            if (v >= 100.0) return "#e86119";
-            if (v >= 50.0) return "#878e14";
-            if (v >= 0.1) return "#227192";
-            return "#636363";
-        }
+        const csvUrl = "./Gridded_rainfall_nowcast_tc.csv";
 
         function getRainColor(val) {
             if (val < 0.1) return 'transparent';
-            if (val < 1) return "#15438e";
-            if (val < 5) return "#2fdbeb";
-            if (val < 10) return "#0F9C5D";
-            if (val < 20) return "#52ee27";
-            if (val < 50) return "#ffdd00";
-            if (val < 80) return "#ff0000";
+            if (val < 1)   return "#15438e";
+            if (val < 5)   return "#2fdbeb";
+            if (val < 10)  return "#0F9C5D";
+            if (val < 20)  return "#52ee27";
+            if (val < 50)  return "#ffdd00";
+            if (val < 80)  return "#ff0000";
             if (val < 100) return "#4a4747";
             return "#6C074E";
         }
@@ -203,10 +123,10 @@
             const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
             const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
         function initMap() {
@@ -228,12 +148,17 @@
 
         function drawRadarRings() {
             radarRingsGroup.clearLayers();
-
+            
             L.circle([MACAU_LAT, MACAU_LON], {
-                radius: 8000, color: '#2fdbeb', weight: 1.4, dashArray: '2, 5', fill: false, opacity: 0.7
+                radius: 8000,
+                color: '#2fdbeb',
+                weight: 1.4,
+                dashArray: '2, 5',
+                fill: false,
+                opacity: 0.7
             }).addTo(radarRingsGroup);
 
-            const distances = [10000, 25000, 50000, 100000];
+            const distances = [10000, 25000, 50000, 100000]; 
             const labels = ['10 km', '25 km', '50 km', '100 km'];
 
             L.circleMarker([MACAU_LAT, MACAU_LON], {
@@ -242,10 +167,15 @@
 
             distances.forEach((dist, idx) => {
                 L.circle([MACAU_LAT, MACAU_LON], {
-                    radius: dist, color: '#949494', weight: 0.8, dashArray: '4, 4', fill: false, opacity: 0.4
+                    radius: dist,
+                    color: '#949494',
+                    weight: 0.8,
+                    dashArray: '4, 4',
+                    fill: false,
+                    opacity: 0.4
                 }).addTo(radarRingsGroup);
 
-                const offsetLat = dist / 111320;
+                const offsetLat = dist / 111320; 
                 L.marker([MACAU_LAT - offsetLat, MACAU_LON], {
                     icon: L.divIcon({
                         className: 'custom-radar-label',
@@ -259,39 +189,26 @@
         function loadData() {
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
-            const cacheBust = `?t=${new Date().getTime()}`;
-            const targetUrl = RAW_HKO_CSV + cacheBust;
-            const proxyUrl = crossProxy + encodeURIComponent(targetUrl);
-        
-            fetch(proxyUrl)
-                .then(res => {
-                    if (!res.ok) throw new Error("Proxy request failed");
-                    return res.text();
-                })
-                .then(rawCsvText => {
-                    // 把代理返回的原始CSV文本交给PapaParse
-                    Papa.parse(rawCsvText, {
-                        header: true,
-                        skipEmptyLines: true,
-                        complete: function (results) {
-                            processCSVData(results.data);
-                        },
-                        error: function (err) {
-                            console.error("CSV Parse Error:", err);
-                            document.getElementById('statusBadge').innerText = "Parse Failed";
-                            document.getElementById('statusBadge').className = "text-red-500 font-medium";
-                        }
-                    });
-                })
-                .catch(err => {
+
+            const liveUrl = `${csvUrl}?t=${new Date().getTime()}`;
+
+            Papa.parse(liveUrl, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    processCSVData(results.data);
+                },
+                error: function(err) {
                     console.error("Data Sync Pipeline Error:", err);
                     document.getElementById('statusBadge').innerText = "Sync Failure";
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
-                });
+                }
+            });
         }
 
         function processCSVData(data) {
-            if (!data || data.length === 0) return;
+            if(!data || data.length === 0) return;
 
             csvData = data.map(row => {
                 const keys = Object.keys(row);
@@ -305,13 +222,15 @@
 
             const uniqueTimes = [...new Set(csvData.map(item => item.end_time))].filter(t => t).sort();
             const timeSelect = document.getElementById('timeSelect');
-
+            
             const currentSelection = timeSelect.value;
             timeSelect.innerHTML = '';
 
+            // Map and calculate threats for ALL time frames simultaneously
             uniqueTimes.forEach(tStr => {
-                let formattedTime = tStr.substring(0, 4) + "-" + tStr.substring(4, 6) + "-" + tStr.substring(6, 8) + " " + tStr.substring(8, 10) + ":" + tStr.substring(10, 12);
-
+                let formattedTime = tStr.substring(0,4) + "-" + tStr.substring(4,6) + "-" + tStr.substring(6,8) + " " + tStr.substring(8,10) + ":" + tStr.substring(10,12);
+                
+                // Scan points inside this specific time frame for threats inside the 8km radius
                 const framePoints = csvData.filter(d => d.end_time === tStr);
                 let frameMaxMacauRain = 0;
                 framePoints.forEach(pt => {
@@ -323,14 +242,16 @@
 
                 let opt = document.createElement('option');
                 opt.value = tStr;
-
+                
+                // Rule modification: Add a warning tag directly inside the select box options if rain >= 10
                 if (frameMaxMacauRain >= 10.0) {
                     opt.innerText = `⚠️ [${Math.round(frameMaxMacauRain)} mm/h] ${formattedTime}`;
-                    opt.style.color = "#f87171";
+                    opt.style.color = "#f87171"; // Tint text light red inside native browser dropdown container
                 } else {
                     opt.innerText = `✓ ${formattedTime}`;
                     opt.style.color = "#4ade80";
                 }
+                
                 timeSelect.appendChild(opt);
             });
 
@@ -341,117 +262,9 @@
             if (uniqueTimes.includes(currentSelection)) {
                 timeSelect.value = currentSelection;
                 renderFrame(currentSelection);
-            } else if (uniqueTimes.length > 0) {
+            } else if(uniqueTimes.length > 0) {
                 renderFrame(uniqueTimes[0]);
             }
-
-            const targetSmgUrl = `https://xml.smg.gov.mo/c_actualweather.xml?t=${new Date().getTime()}`;
-            const proxiedSmgUrl = `${smgProxy}${encodeURIComponent(targetSmgUrl)}`;
-
-            fetch(proxiedSmgUrl)
-                .then(res => {
-                    if (!res.ok) throw new Error(`SMG Proxy error! status: ${res.status}`);
-                    return res.text();
-                })
-                .then(xmlStr => {
-                    const parser = new DOMParser();
-                    const xmlDoc = parser.parseFromString(xmlStr, "text/xml");
-
-                    const pubDateNode = xmlDoc.querySelector("RecordTime");
-                    if (pubDateNode) {
-                        document.getElementById("smgTime").innerText = pubDateNode.textContent.split(" ")[1];
-                    }
-
-                    const stations = xmlDoc.querySelectorAll("station");
-                    globalSmgStationsCache = [];
-
-                    stations.forEach(stationNode => {
-                        const rawName = stationNode.querySelector("stationname")?.textContent || "";
-                        const matchedKey = Object.keys(TARGET_MACAU_STATIONS).find(k => rawName.includes(k));
-
-                        if (matchedKey) {
-                            const stationMeta = TARGET_MACAU_STATIONS[matchedKey];
-                            let r3 = 0.0, r4 = 0.0, r5 = 0.0;
-
-                            const rainfallNodes = stationNode.querySelectorAll("Rainfall");
-                            rainfallNodes.forEach(rainNode => {
-                                const type = rainNode.querySelector("Type")?.textContent || "";
-                                const value = parseFloat(rainNode.querySelector("Value")?.textContent || 0);
-
-                                if (type === "3") r3 = value;
-                                else if (type === "4") r4 = value;
-                                else if (type === "5") r5 = value;
-                            });
-
-                            globalSmgStationsCache.push({
-                                name: matchedKey,
-                                code: stationMeta.code,
-                                lat: stationMeta.lat,
-                                lon: stationMeta.lon,
-                                r3: r3, r4: r4, r5: r5
-                            });
-                        }
-                    });
-
-                    renderMacauStations();
-                })
-                .catch(err => {
-                    console.error("SMG Feed Error:", err);
-                    document.getElementById("macauSmgContainer").innerHTML =
-                        `<p class="text-red-400 font-medium italic text-[11px]">API Failure (${err.message})</p>`;
-                });
-        }
-
-        function renderMacauStations() {
-            const activeType = document.getElementById("smgTypeSelect").value;
-            let htmlContent = "";
-
-            if (globalSmgStationsCache.length === 0) {
-                document.getElementById("macauSmgContainer").innerHTML = '<p class="text-gray-500 italic text-center py-1">No active station indices matched.</p>';
-                return;
-            }
-
-            let processedList = globalSmgStationsCache.map(station => {
-                let targetVal = 0.0;
-                let color = "#636363";
-                if (activeType === "3") { targetVal = station.r3; color = getRain1mColor(station.r3); }
-                else if (activeType === "4") { targetVal = station.r4; color = getRain1hColor(station.r4); }
-                else if (activeType === "5") { targetVal = station.r5; color = getRainTotalColor(station.r5); }
-                return { ...station, displayVal: targetVal, color: color };
-            });
-
-            processedList.sort((a, b) => {
-                return currentSortDirection === "asc" ? a.displayVal - b.displayVal : b.displayVal - a.displayVal;
-            });
-
-            processedList.forEach(station => {
-                htmlContent += `
-                    <div class="bg-[#1a1f26] p-2.5 rounded border border-gray-700/60 flex items-center justify-between shadow-sm">
-                        <span class="truncate max-w-[170px] font-medium text-gray-200 text-[11px]">
-                            ${station.name} <span class="text-gray-500 text-[9px] font-mono">(${station.code})</span>
-                        </span>
-                        <span class="text-white font-black text-xs font-mono px-2 py-0.5 rounded shadow-inner min-w-[54px] text-center" style="background-color: ${station.color}">
-                            ${station.displayVal.toFixed(1)} mm
-                        </span>
-                    </div>`;
-            });
-
-            document.getElementById("macauSmgContainer").innerHTML = htmlContent;
-        }
-
-        function setSortDirection(dir) {
-            currentSortDirection = dir;
-            const ascBtn = document.getElementById('sortAscBtn');
-            const descBtn = document.getElementById('sortDescBtn');
-
-            if (dir === 'asc') {
-                ascBtn.className = "col-span-2 bg-cyan-700 hover:bg-cyan-600 border border-cyan-500 text-[10px] text-white font-bold rounded h-7 flex items-center justify-center transition-all shadow";
-                descBtn.className = "col-span-2 bg-[#1a1f26] hover:bg-gray-700 border border-gray-600 text-[10px] text-gray-400 font-bold rounded h-7 flex items-center justify-center transition-all";
-            } else {
-                descBtn.className = "col-span-2 bg-cyan-700 hover:bg-cyan-600 border border-cyan-500 text-[10px] text-white font-bold rounded h-7 flex items-center justify-center transition-all shadow";
-                ascBtn.className = "col-span-2 bg-[#1a1f26] hover:bg-gray-700 border border-gray-600 text-[10px] text-gray-400 font-bold rounded h-7 flex items-center justify-center transition-all";
-            }
-            renderMacauStations();
         }
 
         function updateHeaderThreatIndicator(targetTime, maxRainInRadius) {
@@ -473,8 +286,9 @@
 
         function renderFrame(targetTime) {
             gridLayerGroup.clearLayers();
-
+            
             const filtered = csvData.filter(d => d.end_time === targetTime && d.rain > 0);
+            
             const peakContainer = document.getElementById('peakContainer');
             const alertBox = document.getElementById('macauAlertBox');
             const alertContent = document.getElementById('macauAlertContent');
@@ -484,30 +298,38 @@
 
             filtered.forEach(pt => {
                 const color = getRainColor(pt.rain);
-                if (color === 'transparent') return;
+                if(color === 'transparent') return;
 
+                // 1. Draw Grid Rectangle Block Box
                 const gridCell = L.rectangle([
                     [pt.lat - 0.01, pt.lon - 0.01],
                     [pt.lat + 0.01, pt.lon + 0.01]
                 ], {
-                    color: color, weight: 0.3, opacity: 0.4, fillColor: color, fillOpacity: 0.55
+                    color: color,
+                    weight: 0.3,
+                    opacity: 0.4,
+                    fillColor: color,
+                    fillOpacity: 0.55
                 });
 
                 gridCell.bindPopup(`<b>Rainfall Rate:</b> ${pt.rain.toFixed(2)} mm/h<br><b>Coords:</b> ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)}`);
                 gridCell.addTo(gridLayerGroup);
 
+                // 2. Plot numerical text markers if value >= 10 mm/h
                 const roundedRain = Math.round(pt.rain);
                 if (roundedRain >= 10) {
                     L.marker([pt.lat, pt.lon], {
                         icon: L.divIcon({
                             className: 'map-rain-label',
                             html: `<span style="color: ${color};">${roundedRain}</span>`,
-                            iconSize: [20, 20], iconAnchor: [10, 10]
+                            iconSize: [20, 20],
+                            iconAnchor: [10, 10]
                         }),
                         interactive: false
                     }).addTo(gridLayerGroup);
                 }
 
+                // 3. Proximity validation math rules
                 const distToMacau = getDistanceKM(pt.lat, pt.lon, MACAU_LAT, MACAU_LON);
                 if (distToMacau <= 8.0 && pt.rain > macauMaxRain) {
                     macauMaxRain = pt.rain;
@@ -519,9 +341,10 @@
 
             updateHeaderThreatIndicator(targetTime, macauMaxRain);
 
+            // 4. Update Sidebar Notification Boxes
             if (macauMaxRain >= 20.0) {
                 alertBox.className = "p-3 rounded border border-red-500 bg-red-950/40 animate-pulse";
-                let formattedTime = targetTime.substring(8, 10) + ":" + targetTime.substring(10, 12);
+                let formattedTime = targetTime.substring(8,10) + ":" + targetTime.substring(10,12);
                 alertContent.innerHTML = `
                     <div class="text-red-400 font-bold flex items-center gap-1.5 mb-1 text-sm">⚠️ CRITICAL IMPACT WARNING</div>
                     <p class="text-gray-200">Heavy core detected within <b>8 km</b> of Macau.</p>
@@ -539,9 +362,9 @@
                 `;
             }
 
-            heavyCores.sort((a, b) => b.rain - a.rain);
+            heavyCores.sort((a,b) => b.rain - a.rain);
             if (heavyCores.length > 0) {
-                peakContainer.innerHTML = heavyCores.slice(0, 8).map(pt =>
+                peakContainer.innerHTML = heavyCores.slice(0, 8).map(pt => 
                     `<div class="flex justify-between items-center bg-[#1a1f26] p-1.5 rounded mb-1 border-l-2" style="border-color:${getRainColor(pt.rain)}">
                         <span>Lat: ${pt.lat.toFixed(2)}, Lon: ${pt.lon.toFixed(2)}</span>
                         <span class="font-bold font-mono" style="color:${getRainColor(pt.rain)}">${Math.round(pt.rain)} mm/h</span>
@@ -552,19 +375,17 @@
             }
         }
 
-        document.getElementById('timeSelect').addEventListener('change', function (e) {
+        document.getElementById('timeSelect').addEventListener('change', function(e) {
             renderFrame(e.target.value);
         });
-        document.getElementById('smgTypeSelect').addEventListener('change', renderMacauStations);
         document.getElementById('refreshBtn').addEventListener('click', loadData);
 
-        document.getElementById('sortAscBtn').addEventListener('click', () => setSortDirection('asc'));
-        document.getElementById('sortDescBtn').addEventListener('click', () => setSortDirection('desc'));
-
-        window.onload = function () {
+        window.onload = function() {
             initMap();
             loadData();
-            setInterval(loadData, 5 * 60 * 1000);
+            
+            // Background automation loop (Every 5 minutes)
+            setInterval(loadData, 5 * 60 * 1000); 
         };
     </script>
 </body>
