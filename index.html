@@ -125,11 +125,9 @@
         // -------------------------- 配置区（必须修改此处）--------------------------
         // 1. 填入真实HKO Nowcast CSV直链
         const RAW_HKO_CSV = "https://data.weather.gov.hk/your/actual/rain_nowcast.csv";
-        // 跨域代理
+        // 更换兼容Github Pages的跨域代理
         const smgProxy = "https://corsproxy.io/?url=";
-        const hkoProxy = "https://api.allorigins.win/get?url=";
-        // 拼接带代理的CSV地址
-        const csvUrl = `${hkoProxy}${encodeURIComponent(RAW_HKO_CSV)}`;
+        const crossProxy = "https://corsproxy.link/";
         // ---------------------------------------------------------------------------
 
         let map;
@@ -261,23 +259,35 @@
         function loadData() {
             document.getElementById('statusBadge').innerText = "Syncing...";
             document.getElementById('statusBadge').className = "text-yellow-400 font-medium";
-
             const cacheBust = `?t=${new Date().getTime()}`;
-            const liveUrl = `${csvUrl}${encodeURIComponent(cacheBust)}`;
-
-            Papa.parse(liveUrl, {
-                download: true,
-                header: true,
-                skipEmptyLines: true,
-                complete: function (results) {
-                    processCSVData(results.data);
-                },
-                error: function (err) {
+            const targetUrl = RAW_HKO_CSV + cacheBust;
+            const proxyUrl = crossProxy + encodeURIComponent(targetUrl);
+        
+            fetch(proxyUrl)
+                .then(res => {
+                    if (!res.ok) throw new Error("Proxy request failed");
+                    return res.text();
+                })
+                .then(rawCsvText => {
+                    // 把代理返回的原始CSV文本交给PapaParse
+                    Papa.parse(rawCsvText, {
+                        header: true,
+                        skipEmptyLines: true,
+                        complete: function (results) {
+                            processCSVData(results.data);
+                        },
+                        error: function (err) {
+                            console.error("CSV Parse Error:", err);
+                            document.getElementById('statusBadge').innerText = "Parse Failed";
+                            document.getElementById('statusBadge').className = "text-red-500 font-medium";
+                        }
+                    });
+                })
+                .catch(err => {
                     console.error("Data Sync Pipeline Error:", err);
                     document.getElementById('statusBadge').innerText = "Sync Failure";
                     document.getElementById('statusBadge').className = "text-red-500 font-medium";
-                }
-            });
+                });
         }
 
         function processCSVData(data) {
